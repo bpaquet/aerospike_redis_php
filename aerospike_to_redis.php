@@ -102,7 +102,7 @@ class AerospikeRedis {
   }
 
   public function setex($key, $ttl, $value) {
-    $status = $this->db->apply($this->format_key($key), "redis", "SETEX", array(self::BIN_NAME, $value, $ttl), $ret_val);
+    $status = $this->db->apply($this->format_key($key), "redis", "SETEX", array(self::BIN_NAME, $this->serialize($value), $ttl), $ret_val);
     $this->check_result($status);
     $this->assert_ok($ret_val);
     return $this->out(true);
