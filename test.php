@@ -5,7 +5,6 @@ require './aerospike_to_redis.php';
 if (isset($_ENV['USE_REDIS'])) {
   echo "Using Redis !!!!\n";
   $r = new Redis();
-  $r->connect('127.0.0.1', 6379);
 }
 else {
   $host = isset($_ENV['HOST']) ? ($_ENV['HOST']) : 'localhost';
@@ -27,6 +26,9 @@ function compare($a, $b) {
     throw new Exception("Assert failed : <".dump($a)."> != <".dump($b).">");
   }
 }
+
+echo("Connect\n");
+compare($r->connect('127.0.0.1', 6379), true);
 
 echo("Get Set\n");
 

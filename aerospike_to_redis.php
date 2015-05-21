@@ -147,9 +147,11 @@ class AerospikeRedis {
   }
 
   public function connect($a1 = 1, $a2 = 1, $a3 = 1, $a4 = 1, $a5 = 1) {
+    return true;
   }
 
   public function pconnect($a1 = 1, $a2 = 1, $a3 = 1, $a4 = 1) {
+    return true;
   }
 
   public function close() {
