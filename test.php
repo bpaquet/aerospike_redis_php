@@ -119,6 +119,68 @@ compare($r->rpop('myKey'), 'z');
 compare($r->lsize('myKey'), 0);
 compare($r->rpop('myKey'), false);
 
+echo("Array Ltrim\n");
+
+$r->del('myKey');
+compare($r->rpush('myKey', 'a'), 1);
+compare($r->lsize('myKey'), 1);
+compare($r->ltrim('myKey', 0, 0), true);
+compare($r->lsize('myKey'), 1);
+compare($r->ltrim('myKey', 0, -1), true);
+compare($r->lsize('myKey'), 1);
+compare($r->ltrim('myKey', -1, -1), true);
+compare($r->lsize('myKey'), 1);
+compare($r->ltrim('myKey', -1, 0), true);
+compare($r->lsize('myKey'), 1);
+compare($r->rpush('myKey', 'b'), 2);
+compare($r->rpush('myKey', 'c'), 3);
+compare($r->ltrim('myKey', 0, 12), true);
+compare($r->lsize('myKey'), 3);
+compare($r->ltrim('myKey', 2, 2), true);
+compare($r->rpop('myKey'), 'c');
+compare($r->lsize('myKey'), 0);
+
+compare($r->rpush('myKey', 'a'), 1);
+compare($r->rpush('myKey', 'b'), 2);
+compare($r->rpush('myKey', 'c'), 3);
+compare($r->ltrim('myKey', 0, -2), true);
+compare($r->lsize('myKey'), 2);
+compare($r->rpop('myKey'), 'b');
+compare($r->rpop('myKey'), 'a');
+
+compare($r->rpush('myKey', 'a'), 1);
+compare($r->rpush('myKey', 'b'), 2);
+compare($r->rpush('myKey', 'c'), 3);
+compare($r->rpush('myKey', 'd'), 4);
+compare($r->rpush('myKey', 'e'), 5);
+compare($r->rpush('myKey', 'f'), 6);
+compare($r->ltrim('myKey', 2, 4), true);
+compare($r->lsize('myKey'), 3);
+compare($r->lpop('myKey'), 'c');
+compare($r->lpop('myKey'), 'd');
+compare($r->lpop('myKey'), 'e');
+
+compare($r->rpush('myKey', 'a'), 1);
+compare($r->rpush('myKey', 'b'), 2);
+compare($r->rpush('myKey', 'c'), 3);
+compare($r->ltrim('myKey', -3, 0), true);
+compare($r->lsize('myKey'), 1);
+compare($r->lpop('myKey'), 'a');
+
+compare($r->rpush('myKey', 'a'), 1);
+compare($r->rpush('myKey', 'b'), 2);
+compare($r->rpush('myKey', 'c'), 3);
+compare($r->ltrim('myKey', -3, -2), true);
+compare($r->lsize('myKey'), 2);
+compare($r->lpop('myKey'), 'a');
+compare($r->lpop('myKey'), 'b');
+
+compare($r->rpush('myKey', 'a'), 1);
+compare($r->rpush('myKey', 'b'), 2);
+compare($r->rpush('myKey', 'c'), 3);
+compare($r->ltrim('myKey', -2, -3), true);
+compare($r->lsize('myKey'), 0);
+
 echo("Exec/Multi\n");
 
 $r->del('myKey');
@@ -147,6 +209,22 @@ compare($r->rpush('myKey', 'a'), $r);
 compare($r->rpop('myKey'), $r);
 compare($r->exec(), array(false, true, 'toto2', 1, 1, "a"));
 
+echo("SetNx\n");
+$r->del('myKey');
+compare($r->setnx('myKey', 'a'), true);
+compare($r->setnx('myKey', 'b'), false);
+compare($r->get('myKey'), 'a');
+
+if (method_exists($r, 'setnxex')) {
+  echo("SetNxEx\n");
+  $r->del('myKey');
+  compare($r->setnxex('myKey', 2, 'a'), true);
+  compare($r->setnxex('myKey', 2, 'b'), false);
+  compare($r->get('myKey'), 'a');
+  sleep(3);
+  compare($r->get('myKey'), false);
+}
+
 echo("SetEx\n");
 
 $r->del('myKey');
@@ -155,7 +233,7 @@ compare($r->get('myKey'), "a");
 compare($r->ttl('myKey'), 2);
 sleep(1);
 compare($r->ttl('myKey'), 1);
-sleep(2);
+sleep(3);
 compare($r->get('myKey'), false);
 
 compare($r->set('myKey', 'a'), true);

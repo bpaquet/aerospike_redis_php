@@ -138,6 +138,25 @@ class AerospikeRedis {
     return $this->out(is_array($ret_val) ? 0 : $ret_val);
   }
 
+  public function ltrim($key, $start, $end) {
+    $status = $this->db->apply($this->format_key($key), "redis", "LTRIM", array(self::BIN_NAME, $start, $end), $ret_val);
+    $this->check_result($status);
+    $this->assert_ok($ret_val);
+    return $this->out(true);
+  }
+
+  public function setnx($key, $value) {
+    $status = $this->db->apply($this->format_key($key), "redis", "SETNX", array(self::BIN_NAME, $this->serialize($value)), $ret_val);
+    $this->check_result($status);
+    return $this->out(is_array($ret_val) ? false : $ret_val === 1);
+  }
+
+  public function setnxex($key, $ttl, $value) {
+    $status = $this->db->apply($this->format_key($key), "redis", "SETNXEX", array(self::BIN_NAME, $this->serialize($value), $ttl), $ret_val);
+    $this->check_result($status);
+    return $this->out(is_array($ret_val) ? false : $ret_val === 1);
+  }
+
   public function flushdb() {
     $options = array(Aerospike::OPT_SCAN_PRIORITY => Aerospike::SCAN_PRIORITY_HIGH);
     $status = $this->db->scan($this->ns, $this->set, function ($record) {
