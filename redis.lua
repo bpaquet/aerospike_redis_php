@@ -109,7 +109,7 @@ function LPUSH(rec, bin, value)
   return length
 end
 
-function LTRIM (rec, bin, start, stop)
+local function ARRAY_RANGE (rec, bin, start, stop)
 	if (EXISTS(rec, bin)) then
 		local l = rec[bin]
 		local switch = 0
@@ -134,17 +134,26 @@ function LTRIM (rec, bin, start, stop)
 			local v = l[start + 1]
 			local l = list()
 			list.prepend(l, v)
-			rec[bin] = l
+			return l
 		elseif (start < stop) then
 			local pre_list  = list.drop(l, start)
 			if pre_list == nil then
 			  pre_list = l
 			end
 			local post_list = list.take(pre_list, stop - start + 1)
-			rec[bin] = post_list
-		else
-			rec[bin] = list()
+			return post_list
 		end
+	end
+	return list()
+end
+
+function LRANGE (rec, bin, start, stop)
+	return ARRAY_RANGE(rec, bin, start, stop)
+end
+
+function LTRIM (rec, bin, start, stop)
+	if (EXISTS(rec, bin)) then
+		rec[bin] = ARRAY_RANGE(rec, bin, start, stop)
 		UPDATE(rec)
 	end
 	return "OK"
