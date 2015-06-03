@@ -148,7 +148,7 @@ class AerospikeRedis {
   public function lRange($key, $start, $end) {
     $status = $this->db->apply($this->format_key($key), "redis", "LRANGE", array(self::BIN_NAME, $start, $end), $ret_val);
     $this->check_result($status);
-    return $this->out(array_map($this->deserialize, $ret_val));
+    return $this->out(array_map(array($this, 'deserialize'), $ret_val));
   }
 
   public function setnx($key, $value) {
