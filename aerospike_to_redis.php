@@ -101,6 +101,10 @@ class AerospikeRedis {
     return $this->out(is_array($ret_val) ? false : $ret_val);
   }
 
+  public function delete($key) {
+    return $this->del($key);
+  }
+
   public function setex($key, $ttl, $value) {
     $status = $this->db->apply($this->format_key($key), "redis", "SETEX", array(self::BIN_NAME, $this->serialize($value), $ttl), $ret_val);
     $this->check_result($status);

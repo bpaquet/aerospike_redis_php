@@ -32,7 +32,7 @@ compare($r->connect('127.0.0.1', 6379), true);
 
 echo("Get Set\n");
 
-$r->del('myKey');
+$r->delete('myKey');
 
 compare($r->get('myKey'), false);
 compare($r->set('myKey', "a"), true);
