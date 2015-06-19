@@ -18,7 +18,7 @@ In your PHP code, instead of creating a Redis class, create an Aeropsike Redis c
   $db = new Aerospike($config, false);
   $r = new AerospikeRedis($db, "namespace", "set");
 ````
-`$r` can be used as an Redis object (not all functions are implemented, please see tests)
+`$r` can be used as an Redis object (not all functions are implemented, please see [tests](test.php))
 
 ````php
 $r->get("toto");
@@ -28,7 +28,7 @@ The namespace must exists in Aerospike config.
 
 # Tests
 
-`tests.php` can be run against Redis or Aerospike.
+[`test.php`](test.php) can be run against Redis or Aerospike.
 
 Against Redis :
 ````
