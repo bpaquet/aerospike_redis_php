@@ -18,13 +18,26 @@ In your PHP code, instead of creating a Redis class, create an Aeropsike Redis c
   $db = new Aerospike($config, false);
   $r = new AerospikeRedis($db, "namespace", "set");
 ````
-`$r` can be used as an Redis object (not all functions are implemented, please see [tests](test.php))
+`$r` can be used as an Redis object.
 
 ````php
 $r->get("toto");
 `````
 
 The namespace must exists in Aerospike config.
+
+# Implemented functions
+
+* get / set / setex
+* del / delete
+* ttl / setTimeout
+* lpush / push / rpop / lpop
+* lSize
+* ltrim / lRange
+* flushdb (using scan, poor performance)
+* hSet / hGet / hDel (keys length must be < 14 chars, bin names limitation in aerospike)
+* hmSet / hmGet
+* hGetAll (key order is different from the redis implementation)
 
 # Tests
 
