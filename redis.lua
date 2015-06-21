@@ -5,10 +5,8 @@ local function EXISTS(rec, bin)
 		and rec[bin] ~= nil
 			and type(rec) == "userdata"
 				and record.ttl(rec) < (MAX_INT - 60) then
-		--info("EXISTS true - "..tostring(bin))
 		return true
 	end
-    --info("EXISTS false - "..tostring(bin))
 	return false
 end
 
@@ -27,63 +25,11 @@ function GET(rec, bin)
 	return nil
 end
 
-function DEL(rec, bin)
-	if EXISTS(rec, bin) then
-		rec[bin] = nil
-		UPDATE(rec)
-		return 1
-	end
-	return 0
-end
-
 function TTL(rec, bin)
 	if EXISTS(rec, bin) then
     return record.ttl(rec)
   end
   return nil
-end
-
-function SETNX(rec, bin, value)
-	if EXISTS(rec, bin) then
-		return 0
-	else
-		rec[bin] = value
-		UPDATE(rec)
-		return 1
-	end
-end
-
-function SETNXEX(rec, bin, value, ttl)
-	if EXISTS(rec, bin) then
-		return 0
-	else
-		rec[bin] = value
-		UPDATE(rec)
-		record.set_ttl(rec, ttl)
-		return 1
-	end
-end
-
-
-function SET(rec, bin, value)
-	rec[bin] = value
-	UPDATE(rec)
-	return "OK"
-end
-
-function SETEX(rec, bin, value, ttl)
-	rec[bin] = value
-	record.set_ttl(rec, ttl)
-	UPDATE(rec)
-	return "OK"
-end
-
-function EXPIRE(rec, bin, ttl)
-	if EXISTS(rec, bin) then
-		record.set_ttl(rec, ttl)
-		UPDATE(rec)
-	end
-	return "OK"
 end
 
 function LPOP (rec, bin, count)
@@ -201,3 +147,65 @@ function RPUSH (rec, bin, value)
 	return length
 end
 
+function HSET(rec, bin, value)
+	local created = 1
+	if (EXISTS(rec, bin)) then
+		created = 0
+	end
+	rec[bin] = value
+	UPDATE(rec)
+	return created
+end
+
+function HDEL(rec, bin)
+	if (EXISTS(rec, bin)) then
+		rec[bin] = nil
+		UPDATE(rec)
+		return 1
+	end
+	return 0
+end
+
+function HGETALL(rec)
+	local l = list()
+	local names = record.bin_names(rec)
+	for k, name in ipairs(names) do
+		list.append(l, name);
+		list.append(l, rec[name]);
+	end
+	return l
+end
+
+function HINCRBY(rec, field, increment)
+	if (EXISTS(rec, field)) then
+		if (type(rec[field]) == "number") then
+			rec[field] = rec[field] + increment
+		else
+			error('WRONG TYPE')
+		end
+	else
+		rec[field] = increment;
+	end
+	UPDATE(rec)
+	return rec[field]
+end
+
+function HMGET(rec, field_list)
+	local res = list()
+	for field in list.iterator(field_list) do
+		if (rec[field] ~= nil) then
+			list.append(res, rec[field])
+		else
+			list.append(res, nil)
+		end
+	end
+	return res
+end
+
+function HMSET(rec, field_value_map)
+	for k,v in map.iterator(field_value_map) do
+		rec[k] = v
+	end
+	UPDATE(rec)
+	return "OK"
+end

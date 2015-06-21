@@ -82,23 +82,26 @@ class AerospikeRedis {
   }
 
   public function setTimeout($key, $ttl) {
-    $status = $this->db->apply($this->format_key($key), "redis", "EXPIRE", array(self::BIN_NAME, $ttl), $ret_val);
+    $status = $this->db->touch($this->format_key($key), $ttl);
     $this->check_result($status);
-    $this->assert_ok($ret_val);
     return $this->out(true);
   }
 
   public function set($key, $value) {
-    $status = $this->db->apply($this->format_key($key), "redis", "SET", array(self::BIN_NAME, $this->serialize($value)), $ret_val);
+    $status = $this->db->put($this->format_key($key), array(self::BIN_NAME => $this->serialize($value)));
     $this->check_result($status);
-    $this->assert_ok($ret_val);
     return $this->out(true);
   }
 
   public function del($key) {
-    $status = $this->db->apply($this->format_key($key), "redis", "DEL", array(self::BIN_NAME), $ret_val);
-    $this->check_result($status);
-    return $this->out(is_array($ret_val) ? false : $ret_val);
+    $status = $this->db->remove($this->format_key($key));
+    if ($status === Aerospike::OK) {
+      return $this->out(1);
+    }
+    if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
+      return $this->out(0);
+    }
+    throw new Exception("Aerospike error : ".$this->db->error());
   }
 
   public function delete($key) {
@@ -106,9 +109,8 @@ class AerospikeRedis {
   }
 
   public function setex($key, $ttl, $value) {
-    $status = $this->db->apply($this->format_key($key), "redis", "SETEX", array(self::BIN_NAME, $this->serialize($value), $ttl), $ret_val);
+    $status = $this->db->put($this->format_key($key), array(self::BIN_NAME => $this->serialize($value)), $ttl);
     $this->check_result($status);
-    $this->assert_ok($ret_val);
     return $this->out(true);
   }
 
@@ -155,16 +157,78 @@ class AerospikeRedis {
     return $this->out(array_map(array($this, 'deserialize'), $ret_val));
   }
 
-  public function setnx($key, $value) {
-    $status = $this->db->apply($this->format_key($key), "redis", "SETNX", array(self::BIN_NAME, $this->serialize($value)), $ret_val);
+  public function hSet($key, $field, $value) {
+    $status = $this->db->apply($this->format_key($key), "redis", "HSET", array($field, $this->serialize($value)), $ret_val);
     $this->check_result($status);
-    return $this->out(is_array($ret_val) ? false : $ret_val === 1);
+    return $this->out(is_array($ret_val) ? 0 : $ret_val);
+  }
+
+  public function hGet($key, $field) {
+    $status = $this->db->get($this->format_key($key), $ret_val, array($field));
+     if ($status === Aerospike::OK) {
+      return $this->out(isset($ret_val["bins"][$field]) ? $this->deserialize($ret_val["bins"][$field]) : false);
+    }
+    if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
+      return $this->out(false);
+    }
+    throw new Exception("Aerospike error : ".$this->db->error());
+  }
+
+  public function hDel($key, $field) {
+    $status = $this->db->apply($this->format_key($key), "redis", "HDEL", array($field), $ret_val);
+    $this->check_result($status);
+    return $this->out(is_array($ret_val) ? 0 : $ret_val);
+  }
+
+  public function hmSet($key, $values) {
+    foreach(array_keys($values) as $k) {
+      $values[$k] = $this->serialize($values[$k]);
+    }
+    $status = $this->db->apply($this->format_key($key), "redis", "HMSET", array($values), $ret_val);
+    $this->check_result($status);
+    $this->assert_ok($ret_val);
+    return $this->out(true);
+  }
+
+  public function hmGet($key, $keys) {
+    $status = $this->db->apply($this->format_key($key), "redis", "HMGET", array($keys), $ret_val);
+    $this->check_result($status);
+    $r = array();
+    for($i = 0; $i < count($keys); $i ++) {
+      $r[$keys[$i]] = ($ret_val[$i] === NULL) ? false : $this->deserialize($ret_val[$i]);
+    }
+    return $r;
+  }
+
+  public function hGetAll($key) {
+    $status = $this->db->apply($this->format_key($key), "redis", "HGETALL", array(), $ret_val);
+    $this->check_result($status);
+    $r = array();
+    for($i = 0; $i < count($ret_val); $i += 2) {
+      $r[$ret_val[$i]] = $this->deserialize($ret_val[$i + 1]);
+    }
+    return $r;
+  }
+
+   public function hIncrBy($key, $field, $value) {
+    $status = $this->db->apply($this->format_key($key), "redis", "HINCRBY", array($field, $value), $ret_val);
+    $this->check_result($status);
+    return $this->out(is_array($ret_val) ? 0 : $ret_val);
+  }
+
+  public function setnx($key, $value) {
+    return $this->setnxex($key, 0, $value);
   }
 
   public function setnxex($key, $ttl, $value) {
-    $status = $this->db->apply($this->format_key($key), "redis", "SETNXEX", array(self::BIN_NAME, $this->serialize($value), $ttl), $ret_val);
-    $this->check_result($status);
-    return $this->out(is_array($ret_val) ? false : $ret_val === 1);
+    $status = $this->db->put($this->format_key($key), array(self::BIN_NAME => $this->serialize($value)), $ttl, array(Aerospike::OPT_POLICY_EXISTS => Aerospike::POLICY_EXISTS_CREATE));
+    if ($status === Aerospike::OK) {
+      return $this->out(true);
+    }
+    if ($status === Aerospike::ERR_RECORD_EXISTS) {
+      return $this->out(false);
+    }
+    throw new Exception("Aerospike error : ".$this->db->error());
   }
 
   public function flushdb() {

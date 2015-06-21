@@ -27,6 +27,12 @@ function compare($a, $b) {
   }
 }
 
+function compare_map($a, $b) {
+  ksort($a);
+  ksort($b);
+  compare($a, $b);
+}
+
 echo("Connect\n");
 compare($r->connect('127.0.0.1', 6379), true);
 
@@ -119,6 +125,11 @@ compare($r->rpop('myKey'), 'z');
 compare($r->lsize('myKey'), 0);
 compare($r->rpop('myKey'), false);
 
+compare($r->lpush('myKey', $bin), 1);
+compare($r->rpop('myKey'), $bin);
+compare($r->rpush('myKey', $bin), 1);
+compare($r->rpop('myKey'), $bin);
+
 echo("Array Ltrim lRange\n");
 
 $r->del('myKey');
@@ -197,6 +208,66 @@ compare($r->lRange('myKey', -2, -3), array());
 compare($r->ltrim('myKey', -2, -3), true);
 compare($r->lsize('myKey'), 0);
 compare($r->lRange('myKey', 0, 200), array());
+
+echo("hSet hGet hDel\n");
+$r->del('myKey');
+compare($r->hSet('myKey', "a", 2), 1);
+compare($r->hGet('myKey', "z"), false);
+compare($r->hGet('myKey', "a"), '2');
+compare($r->hSet('myKey', "a", 1), 0);
+compare($r->hSet('myKey', "b", "a"), 1);
+compare($r->hGet('myKey', "a"), '1');
+compare($r->hGet('myKey', "b"), "a");
+compare($r->hSet('myKey', "a",0), 0);
+compare($r->hGet('myKey', "a"), '0');
+compare($r->hDel('myKey', "a"), 1);
+compare($r->hDel('myKey', "a"), 0);
+compare($r->hGet('myKey', "a"), false);
+compare($r->hGet('myKey', "c"), false);
+compare($r->hSet('myKey', "a",1), 1);
+compare($r->del('myKey'), 1);
+compare($r->del('myKey'), 0);
+compare($r->hGet('myKey', "a"), false);
+$r->del('myKey');
+compare($r->del('myKey'), 0);
+compare($r->hSet('myKey', "b", $bin), 1);
+compare($r->hGet('myKey', "b"), $bin);
+
+compare($r->hSet('myKey', "veryverylongke", "toto"), 1);
+compare($r->hGet('myKey', "veryverylongke"), "toto");
+
+
+echo("hmSet hmGet\n");
+$r->del('myKey');
+compare($r->hmGet('myKey', array('a','b','c')), array('a' => false, 'b'  => false, 'c' => false));
+compare($r->hSet('myKey', "b", 2), 1);
+compare($r->hmGet('myKey', array('a','b','c')), array('a' => false, 'b'  => '2', 'c' => false));
+compare($r->hmSet('myKey', array('a' => 1,'b' => 1,'c' => 1)), true);
+compare($r->hmGet('myKey', array('a','b','c')), array('a' => '1','b'  => '1','c' => '1'));
+compare($r->hDel('myKey', 'a'), 1);
+compare($r->hmGet('myKey', array('a','b','c')), array('a'=>false,'b'=> '1','c'=> '1'));
+compare($r->hmGet('myKey', array('b','c')), array('b' => '1','c' => '1'));
+
+echo("hGetAll\n");
+$r->del('myKey');
+compare($r->hGetAll('myKey'), array());
+compare($r->hmSet('myKey', array('b' => 3, 'a' => 1, 1 => 4, 'toto' => 2)),  true);
+compare_map($r->hGetAll('myKey'), array('b' => '3', 'a' => '1', 1 => '4', 'toto' => '2'));
+compare($r->hDel('myKey', 'a'), 1);
+compare_map($r->hGetAll('myKey'), array('b' => '3', 1 => '4', 'toto' => '2'));
+compare($r->hDel('myKey', 1), 1);
+compare_map($r->hGetAll('myKey'), array('b' => '3', 'toto' => '2'));
+compare($r->hmSet('myKey', array("b" => $bin)), true);
+compare($r->hGet('myKey', "b"), $bin);
+
+echo("hIncrBy\n");
+$r->del('myKey');
+compare($r->hIncrBy('myKey', 'a', 1), 1);
+compare($r->hIncrBy('myKey', 'a', 10), 11);
+compare($r->hIncrBy('myKey', 'a', -15), -4);
+compare($r->hIncrBy('myKey', 'a', 0), -4);
+compare($r->del('myKey'), 1);
+compare($r->hIncrBy('myKey', 'a', 0), 0);
 
 echo("Exec/Multi\n");
 
