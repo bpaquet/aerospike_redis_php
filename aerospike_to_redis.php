@@ -197,7 +197,7 @@ class AerospikeRedis {
     for($i = 0; $i < count($keys); $i ++) {
       $r[$keys[$i]] = ($ret_val[$i] === NULL) ? false : $this->deserialize($ret_val[$i]);
     }
-    return $r;
+    return $this->out($r);
   }
 
   public function hGetAll($key) {
@@ -207,7 +207,7 @@ class AerospikeRedis {
     for($i = 0; $i < count($ret_val); $i += 2) {
       $r[$ret_val[$i]] = $this->deserialize($ret_val[$i + 1]);
     }
-    return $r;
+    return $this->out($r);
   }
 
    public function hIncrBy($key, $field, $value) {
