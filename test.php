@@ -248,6 +248,11 @@ compare($r->hDel('myKey', 'a'), 1);
 compare($r->hmGet('myKey', array('a','b','c')), array('a'=>false,'b'=> '1','c'=> '1'));
 compare($r->hmGet('myKey', array('b','c')), array('b' => '1','c' => '1'));
 
+compare($r->multi(), $r);
+compare($r->hmGet('myKey', array('a','b','c')), $r);
+compare($r->hmGet('myKey', array('b','c')), $r);
+compare($r->exec(), array(array('a'=>false,'b'=> '1','c'=> '1'), array('b' => '1','c' => '1')));
+
 echo("hGetAll\n");
 $r->del('myKey');
 compare($r->hGetAll('myKey'), array());
