@@ -18,20 +18,6 @@ local function UPDATE(rec)
 	end
 end
 
-function GET(rec, bin)
-	if EXISTS(rec, bin) then
-		return rec[bin]
-	end
-	return nil
-end
-
-function TTL(rec, bin)
-	if EXISTS(rec, bin) then
-    return record.ttl(rec)
-  end
-  return nil
-end
-
 function LPOP (rec, bin, count)
 	if (EXISTS(rec, bin)) then
 		local l = rec[bin]

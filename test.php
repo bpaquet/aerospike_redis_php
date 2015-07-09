@@ -21,9 +21,16 @@ function dump($a) {
   ob_clean();
   return trim($aa);
 }
+
 function compare($a, $b) {
   if ($a !== $b) {
     throw new Exception("Assert failed : <".dump($a)."> != <".dump($b).">");
+  }
+}
+
+function upper($a, $b) {
+  if ($a < $b) {
+    throw new Exception("Must ".dump($a)." >= ".dump($b));
   }
 }
 
@@ -326,9 +333,10 @@ compare($r->ttl('not_existing key'), -2);
 $r->del('myKey');
 compare($r->setex('myKey', 2, 'a'), true);
 compare($r->get('myKey'), "a");
-compare($r->ttl('myKey'), 2);
+upper($r->ttl('myKey'), 1);
 sleep(1);
-compare($r->ttl('myKey'), 1);
+compare($r->get('myKey'), "a");
+upper($r->ttl('myKey'), 1);
 sleep(3);
 compare($r->get('myKey'), false);
 

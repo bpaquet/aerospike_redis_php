@@ -4,11 +4,18 @@ class AerospikeRedis {
 
   const BIN_NAME = "r";
 
-  public function __construct($db, $ns, $set) {
+  public function __construct($db, $ns, $set, $read_options = array(Aerospike::OPT_POLICY_CONSISTENCY => Aerospike::POLICY_CONSISTENCY_ONE, Aerospike::OPT_POLICY_REPLICA => Aerospike::POLICY_REPLICA_ANY), $write_options = array(Aerospike::OPT_POLICY_COMMIT_LEVEL => Aerospike::POLICY_COMMIT_LEVEL_MASTER)) {
     $this->db = $db;
     $this->ns = $ns;
     $this->set = $set;
     $this->on_multi = false;
+    $this->read_options = $read_options;
+    $this->write_options = $write_options;
+    $this->setex_options = array();
+    foreach(array_keys($write_options) as $k) {
+      $this->setex_options[$k] = $write_options[$k];
+    }
+    $this->setex_options[Aerospike::OPT_POLICY_EXISTS] = Aerospike::POLICY_EXISTS_CREATE;
   }
 
   private function format_key($key) {
@@ -70,20 +77,30 @@ class AerospikeRedis {
   }
 
   public function get($key) {
-    $status = $this->db->apply($this->format_key($key), "redis", "GET", array(self::BIN_NAME), $ret_val);
-    $this->check_result($status);
-    return $this->out(is_array($ret_val) ? false : $this->deserialize($ret_val));
+    $status = $this->db->get($this->format_key($key), $ret_val, array(self::BIN_NAME), $this->read_options);
+    if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
+      return $this->out(false);
+    }
+    if ($status === Aerospike::OK) {
+      return $this->out($this->deserialize($ret_val["bins"][self::BIN_NAME]));
+    }
+    throw new Exception("Aerospike error : ".$this->db->error());
   }
 
   public function ttl($key) {
-    $status = $this->db->apply($this->format_key($key), "redis", "TTL", array(self::BIN_NAME), $ret_val);
-    $this->check_result($status);
-    return $this->out(is_array($ret_val) ? -2 : $ret_val);
+    $status = $this->db->get($this->format_key($key), $ret_val, array(), $this->read_options);
+    if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
+      return $this->out(-2);
+    }
+    if ($status === Aerospike::OK) {
+      return $this->out(intval($ret_val["metadata"]["ttl"]));
+    }
+    throw new Exception("Aerospike error : ".$this->db->error());
   }
 
   public function setTimeout($key, $ttl) {
-    $status = $this->db->touch($this->format_key($key), $ttl);
-     if ($status === Aerospike::OK) {
+    $status = $this->db->touch($this->format_key($key), $ttl, $this->write_options);
+    if ($status === Aerospike::OK) {
       return $this->out(true);
     }
     if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
@@ -93,13 +110,13 @@ class AerospikeRedis {
   }
 
   public function set($key, $value) {
-    $status = $this->db->put($this->format_key($key), array(self::BIN_NAME => $this->serialize($value)));
+    $status = $this->db->put($this->format_key($key), array(self::BIN_NAME => $this->serialize($value)), 0, $this->write_options);
     $this->check_result($status);
     return $this->out(true);
   }
 
   public function del($key) {
-    $status = $this->db->remove($this->format_key($key));
+    $status = $this->db->remove($this->format_key($key), $this->write_options);
     if ($status === Aerospike::OK) {
       return $this->out(1);
     }
@@ -114,7 +131,7 @@ class AerospikeRedis {
   }
 
   public function setex($key, $ttl, $value) {
-    $status = $this->db->put($this->format_key($key), array(self::BIN_NAME => $this->serialize($value)), $ttl);
+    $status = $this->db->put($this->format_key($key), array(self::BIN_NAME => $this->serialize($value)), $ttl, $this->write_options);
     $this->check_result($status);
     return $this->out(true);
   }
@@ -169,8 +186,8 @@ class AerospikeRedis {
   }
 
   public function hGet($key, $field) {
-    $status = $this->db->get($this->format_key($key), $ret_val, array($field));
-     if ($status === Aerospike::OK) {
+    $status = $this->db->get($this->format_key($key), $ret_val, array($field), $this->read_options);
+    if ($status === Aerospike::OK) {
       return $this->out(isset($ret_val["bins"][$field]) ? $this->deserialize($ret_val["bins"][$field]) : false);
     }
     if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
@@ -226,7 +243,7 @@ class AerospikeRedis {
   }
 
   public function setnxex($key, $ttl, $value) {
-    $status = $this->db->put($this->format_key($key), array(self::BIN_NAME => $this->serialize($value)), $ttl, array(Aerospike::OPT_POLICY_EXISTS => Aerospike::POLICY_EXISTS_CREATE));
+    $status = $this->db->put($this->format_key($key), array(self::BIN_NAME => $this->serialize($value)), $ttl, $this->setex_options);
     if ($status === Aerospike::OK) {
       return $this->out(true);
     }
