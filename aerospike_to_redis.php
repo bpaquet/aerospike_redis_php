@@ -78,13 +78,18 @@ class AerospikeRedis {
   public function ttl($key) {
     $status = $this->db->apply($this->format_key($key), "redis", "TTL", array(self::BIN_NAME), $ret_val);
     $this->check_result($status);
-    return $this->out(is_array($ret_val) ? false : $ret_val);
+    return $this->out(is_array($ret_val) ? -2 : $ret_val);
   }
 
   public function setTimeout($key, $ttl) {
     $status = $this->db->touch($this->format_key($key), $ttl);
-    $this->check_result($status);
-    return $this->out(true);
+     if ($status === Aerospike::OK) {
+      return $this->out(true);
+    }
+    if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
+      return $this->out(false);
+    }
+    throw new Exception("Aerospike error : ".$this->db->error());
   }
 
   public function set($key, $value) {

@@ -320,6 +320,9 @@ if (method_exists($r, 'setnxex')) {
 
 echo("SetEx\n");
 
+compare($r->setTimeout('not_existing key', 10), false);
+compare($r->ttl('not_existing key'), -2);
+
 $r->del('myKey');
 compare($r->setex('myKey', 2, 'a'), true);
 compare($r->get('myKey'), "a");
