@@ -12,8 +12,13 @@ class AerospikeRedis {
     $this->read_options = $read_options;
     $this->write_options = $write_options;
     $this->setex_options = array();
+    $this->operate_options = array();
     foreach(array_keys($write_options) as $k) {
       $this->setex_options[$k] = $write_options[$k];
+      $this->operate_options[$k] = $write_options[$k];
+    }
+    foreach(array_keys($read_options) as $k) {
+      $this->operate_options[$k] = $read_options[$k];
     }
     $this->setex_options[Aerospike::OPT_POLICY_EXISTS] = Aerospike::POLICY_EXISTS_CREATE;
   }
@@ -134,6 +139,33 @@ class AerospikeRedis {
     $status = $this->db->put($this->format_key($key), array(self::BIN_NAME => $this->serialize($value)), $ttl, $this->write_options);
     $this->check_result($status);
     return $this->out(true);
+  }
+
+  public function incr($key) {
+    return $this->incrby($key, 1);
+  }
+
+  public function decr($key) {
+    return $this->incrby($key, -1);
+  }
+
+  public function decrby($key, $value) {
+    return $this->incrby($key, -$value);
+  }
+
+  public function incrby($key, $value) {
+    $operations = array(
+      array("op" => Aerospike::OPERATOR_INCR, "bin" => self::BIN_NAME, "val" => $value),
+      array("op" => Aerospike::OPERATOR_READ, "bin" => self::BIN_NAME),
+    );
+    $status = $this->db->operate($this->format_key($key), $operations, $ret_val, $this->operate_options);
+     if ($status === Aerospike::OK) {
+      return $this->out($ret_val[self::BIN_NAME]);
+    }
+    if ($status === Aerospike::ERR_BIN_INCOMPATIBLE_TYPE) {
+      return $this->out(false);
+    }
+    throw new Exception("Aerospike error : ".$this->db->error());
   }
 
   public function rpush($key, $value) {
