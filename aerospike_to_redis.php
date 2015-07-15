@@ -142,30 +142,19 @@ class AerospikeRedis {
   }
 
   public function incr($key) {
-    return $this->incrby($key, 1);
+    return $this->hIncrBy($key, self::BIN_NAME, 1);
   }
 
   public function decr($key) {
-    return $this->incrby($key, -1);
+    return $this->hIncrBy($key, self::BIN_NAME, -1);
   }
 
   public function decrby($key, $value) {
-    return $this->incrby($key, -$value);
+    return $this->hIncrBy($key, self::BIN_NAME, -$value);
   }
 
   public function incrby($key, $value) {
-    $operations = array(
-      array("op" => Aerospike::OPERATOR_INCR, "bin" => self::BIN_NAME, "val" => $value),
-      array("op" => Aerospike::OPERATOR_READ, "bin" => self::BIN_NAME),
-    );
-    $status = $this->db->operate($this->format_key($key), $operations, $ret_val, $this->operate_options);
-     if ($status === Aerospike::OK) {
-      return $this->out($ret_val[self::BIN_NAME]);
-    }
-    if ($status === Aerospike::ERR_BIN_INCOMPATIBLE_TYPE) {
-      return $this->out(false);
-    }
-    throw new Exception("Aerospike error : ".$this->db->error());
+      return $this->hIncrBy($key, self::BIN_NAME, $value);
   }
 
   public function rpush($key, $value) {
@@ -264,10 +253,19 @@ class AerospikeRedis {
     return $this->out($r);
   }
 
-   public function hIncrBy($key, $field, $value) {
-    $status = $this->db->apply($this->format_key($key), "redis", "HINCRBY", array($field, $value), $ret_val);
-    $this->check_result($status);
-    return $this->out(is_array($ret_val) ? 0 : $ret_val);
+  public function hIncrBy($key, $field, $value) {
+    $operations = array(
+      array("op" => Aerospike::OPERATOR_INCR, "bin" => $field, "val" => $value),
+      array("op" => Aerospike::OPERATOR_READ, "bin" => $field),
+    );
+    $status = $this->db->operate($this->format_key($key), $operations, $ret_val, $this->operate_options);
+     if ($status === Aerospike::OK) {
+      return $this->out($ret_val[$field]);
+    }
+    if ($status === Aerospike::ERR_BIN_INCOMPATIBLE_TYPE) {
+      return $this->out(false);
+    }
+    throw new Exception("Aerospike error : ".$this->db->error());
   }
 
   public function setnx($key, $value) {
