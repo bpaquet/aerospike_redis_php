@@ -234,13 +234,22 @@ class AerospikeRedis {
   }
 
   public function hmGet($key, $keys) {
-    $status = $this->db->apply($this->format_key($key), "redis", "HMGET", array($keys), $ret_val);
-    $this->check_result($status);
-    $r = array();
-    for($i = 0; $i < count($keys); $i ++) {
-      $r[$keys[$i]] = ($ret_val[$i] === NULL) ? false : $this->deserialize($ret_val[$i]);
+    $status = $this->db->get($this->format_key($key), $ret_val, $keys, $this->read_options);
+    if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
+      $r = array();
+      foreach($keys as $key) {
+        $r[$key] = false;
+      }
+      return $this->out($r);
     }
-    return $this->out($r);
+    if ($status === Aerospike::OK) {
+      $r = array();
+      foreach($keys as $key) {
+        $r[$key] = ($ret_val["bins"][$key] === NULL) ? false : $this->deserialize($ret_val["bins"][$key]);
+      }
+      return $this->out($r);
+    }
+    throw new Exception("Aerospike error : ".$this->db->error());
   }
 
   public function hGetAll($key) {
