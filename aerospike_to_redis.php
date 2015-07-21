@@ -93,12 +93,12 @@ class AerospikeRedis {
   }
 
   public function ttl($key) {
-    $status = $this->db->get($this->format_key($key), $ret_val, array(), $this->read_options);
+    $status = $this->db->exists($this->format_key($key), $ret_val, $this->read_options);
     if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
       return $this->out(-2);
     }
     if ($status === Aerospike::OK) {
-      return $this->out(intval($ret_val["metadata"]["ttl"]));
+      return $this->out(intval($ret_val["ttl"]));
     }
     throw new Exception("Aerospike error : ".$this->db->error());
   }
@@ -288,6 +288,27 @@ class AerospikeRedis {
     }
     if ($status === Aerospike::ERR_RECORD_EXISTS) {
       return $this->out(false);
+    }
+    throw new Exception("Aerospike error : ".$this->db->error());
+  }
+
+  public function batch($key, $operations) {
+    $x = array();
+    if (isset($operations['hIncrBy'])) {
+      foreach(array_keys($operations['hIncrBy']) as $k) {
+        array_push($x, array("op" => Aerospike::OPERATOR_INCR, "bin" => $k, "val" => $operations['hIncrBy'][$k]));
+      }
+    }
+    if (isset($operations['setTimeout'])) {
+      array_push($x, array("op" => Aerospike::OPERATOR_TOUCH, "ttl" => $operations['setTimeout']));
+    }
+    if (count($x) === 1 && isset($operations['setTimeout'])) {
+      $this->setTimeout($key, $operations['setTimeout']);
+      return $this->out(true);
+    }
+    $status = $this->db->operate($this->format_key($key), $x, $ret_val, $this->operate_options);
+    if ($status === Aerospike::OK) {
+      return $this->out(true);
     }
     throw new Exception("Aerospike error : ".$this->db->error());
   }
