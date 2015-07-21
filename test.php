@@ -2,6 +2,27 @@
 
 require './aerospike_to_redis.php';
 
+
+class ProxyCounter {
+
+  public function __construct($target) {
+    $this->_counter = 0;
+    $this->_calls = array();
+    $this->_target = $target;
+  }
+
+  public function __call($name, $args) {
+    $this->_counter ++;
+    if (! isset($this->_calls[$name])) {
+      $this->_calls[$name] = 0;
+    }
+    $this->_calls[$name] ++;
+    $res = call_user_func_array(array($this->_target, $name), $args);
+    return $res === $this->_target ? $this : $res;
+  }
+
+}
+
 if (isset($_ENV['USE_REDIS'])) {
   echo "Using Redis !!!!\n";
   $r = new Redis();
@@ -13,6 +34,10 @@ else {
   $db = new Aerospike($config, false);
   $r = new AerospikeRedis($db, "test", "redis");
 }
+
+$r = new ProxyCounter($r);
+
+$start = microtime(true);
 
 function dump($a) {
   ob_start();
@@ -366,4 +391,17 @@ compare($r->ttl('myKey'), 1);
 sleep(2);
 compare($r->get('myKey'), false);
 
+echo("Lot of keys\n");
+for($i = 0; $i < 500; $i ++) {
+  compare($r->set('mykey'.$i, $i), true);
+}
+
+for($i = 0; $i < 500; $i ++) {
+  compare($r->get('mykey'.$i), ''.$i);
+}
+
 echo("OK\n");
+
+$delay = microtime(true) - $start;
+
+echo("Number of calls ".$r->_counter.", delay ".$delay."\n");
