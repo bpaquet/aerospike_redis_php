@@ -32,7 +32,12 @@ else {
   echo "Using Aerospike on " . $host . "\n";
   $config = array("hosts" => array(array("addr" => $host, "port" => 3000)));
   $db = new Aerospike($config, false);
-  $r = new AerospikeRedis($db, "test", "redis");
+  if (isset($_ENV['ONE_BIN'])) {
+    $r = new AerospikeRedisOneBin($db, "test", "redis");
+  }
+  else {
+    $r = new AerospikeRedis($db, "test", "redis");
+  }
 }
 
 $r = new ProxyCounter($r);
@@ -115,35 +120,34 @@ compare($r->set('myKey', "toto\x00\x01\x02tata"), true);
 compare($r->get('myKey'), "toto\x00\x01\x02tata");
 
 $json = file_get_contents('big_json.json');
-
-echo("Get Set big data " . strlen($json)."\n");
-
-$r->del('myKey');
-compare($r->get('myKey'), false);
-compare($r->set('myKey', $json), true);
-compare($r->get('myKey'), $json);
-compare($r->del('myKey'), 1);
-compare($r->rpush('myKey', $json), 1);
-compare($r->rpop('myKey'), $json);
-
 $bin = gzcompress($json);
 
-echo("Get Set big data binary " . strlen($bin)."\n");
+// echo("Get Set big data " . strlen($json)."\n");
 
-$r->del('myKey');
-compare($r->get('myKey'), false);
-compare($r->set('myKey', $bin), true);
-compare(gzuncompress($r->get('myKey')), $json);
-compare($r->del('myKey'), 1);
-compare($r->rpush('myKey', $bin), 1);
-compare(gzuncompress($r->rpop('myKey')), $json);
+// $r->del('myKey');
+// compare($r->get('myKey'), false);
+// compare($r->set('myKey', $json), true);
+// compare($r->get('myKey'), $json);
+// compare($r->del('myKey'), 1);
+// compare($r->rpush('myKey', $json), 1);
+// compare($r->rpop('myKey'), $json);
 
-echo("Flush\n");
-compare($r->set('myKey1', "a"), true);
-compare($r->set('myKey2', "b"), true);
-compare($r->flushdb(), true);
-compare($r->get('myKey1'), false);
-compare($r->get('myKey2'), false);
+// echo("Get Set big data binary " . strlen($bin)."\n");
+
+// $r->del('myKey');
+// compare($r->get('myKey'), false);
+// compare($r->set('myKey', $bin), true);
+// compare(gzuncompress($r->get('myKey')), $json);
+// compare($r->del('myKey'), 1);
+// compare($r->rpush('myKey', $bin), 1);
+// compare(gzuncompress($r->rpop('myKey')), $json);
+
+// echo("Flush\n");
+// compare($r->set('myKey1', "a"), true);
+// compare($r->set('myKey2', "b"), true);
+// compare($r->flushdb(), true);
+// compare($r->get('myKey1'), false);
+// compare($r->get('myKey2'), false);
 
 echo("Array\n");
 
@@ -317,11 +321,30 @@ compare($r->hGet('myKey', "b"), $bin);
 echo("hIncrBy\n");
 $r->del('myKey');
 compare($r->hIncrBy('myKey', 'a', 1), 1);
+compare($r->hGet('myKey', 'a'), "1");
 compare($r->hIncrBy('myKey', 'a', 10), 11);
+compare($r->hGet('myKey', 'a'), "11");
 compare($r->hIncrBy('myKey', 'a', -15), -4);
 compare($r->hIncrBy('myKey', 'a', 0), -4);
 compare($r->del('myKey'), 1);
 compare($r->hIncrBy('myKey', 'a', 0), 0);
+
+echo("Batch\n");
+
+$r->del('myKey');
+$r->del('myKey2');
+compare($r->batch('myKey2', array('setTimeout' => 200)), true);
+compare($r->ttl('myKey2'), -2);
+
+compare($r->batch('myKey', array('hIncrBy' => array('key' => 1, 'key2' => 5), 'setTimeout' => 10)), true);
+compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '5'));
+compare($r->batch('myKey', array('hIncrBy' => array('key2' => 6), 'setTimeout' => 200)), true);
+upper($r->ttl('myKey'), 100);
+compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '11'));
+compare($r->batch('myKey', array('hIncrBy' => array('key3' => 12), 'setTimeout' => 2)), true);
+compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '11', 'key3' => '12'));
+sleep(5);
+compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '11', 'key3' => '12'));
 
 echo("Exec/Multi\n");
 
@@ -399,24 +422,6 @@ for($i = 0; $i < 500; $i ++) {
 for($i = 0; $i < 500; $i ++) {
   compare($r->get('mykey'.$i), ''.$i);
 }
-
-echo("Batch\n");
-
-$r->del('myKey');
-$r->del('myKey2');
-compare($r->batch('myKey2', array('setTimeout' => 200)), true);
-compare($r->ttl('myKey2'), -2);
-
-
-compare($r->batch('myKey', array('hIncrBy' => array('key' => 1, 'key2' => 5), 'setTimeout' => 10)), true);
-compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '5'));
-compare($r->batch('myKey', array('hIncrBy' => array('key2' => 6), 'setTimeout' => 200)), true);
-upper($r->ttl('myKey'), 100);
-compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '11'));
-compare($r->batch('myKey', array('hIncrBy' => array('key3' => 12), 'setTimeout' => 2)), true);
-compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '11', 'key3' => '12'));
-sleep(5);
-compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '11', 'key3' => '12'));
 
 echo("OK\n");
 

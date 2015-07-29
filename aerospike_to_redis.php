@@ -23,17 +23,17 @@ class AerospikeRedis {
     $this->setex_options[Aerospike::OPT_POLICY_EXISTS] = Aerospike::POLICY_EXISTS_CREATE;
   }
 
-  private function format_key($key) {
+  protected function format_key($key) {
     return $this->db->initKey($this->ns, $this->set, $key);
   }
 
-  private function check_result($status) {
+  protected function check_result($status) {
     if ($status != Aerospike::OK) {
       throw new Exception("Aerospike error : ".$this->db->error());
     }
   }
 
-  private function out($v) {
+  protected function out($v) {
     if ($this->on_multi === false) {
       return $v;
     }
@@ -43,14 +43,14 @@ class AerospikeRedis {
     }
   }
 
-  private function serialize($v) {
+  protected function serialize($v) {
     if (strpos($v, 0) !== false) {
       return "__64__" . base64_encode($v);
     }
     return $v;
   }
 
-  private function deserialize($v) {
+  protected function deserialize($v) {
     if (substr($v, 0, 6) === "__64__") {
       return base64_decode(substr($v, 6));
     }
@@ -60,7 +60,7 @@ class AerospikeRedis {
     return $v;
   }
 
-  private function assert_ok($ret_val) {
+  protected function assert_ok($ret_val) {
     if ($ret_val != "OK") {
       throw new Exception("Aerospike error, result not OK ".$ret_val);
     }
@@ -142,19 +142,19 @@ class AerospikeRedis {
   }
 
   public function incr($key) {
-    return $this->hIncrBy($key, self::BIN_NAME, 1);
+    return $this->_hIncrBy($key, self::BIN_NAME, 1);
   }
 
   public function decr($key) {
-    return $this->hIncrBy($key, self::BIN_NAME, -1);
+    return $this->_hIncrBy($key, self::BIN_NAME, -1);
   }
 
   public function decrby($key, $value) {
-    return $this->hIncrBy($key, self::BIN_NAME, -$value);
+    return $this->_hIncrBy($key, self::BIN_NAME, -$value);
   }
 
   public function incrby($key, $value) {
-      return $this->hIncrBy($key, self::BIN_NAME, $value);
+      return $this->_hIncrBy($key, self::BIN_NAME, $value);
   }
 
   public function rpush($key, $value) {
@@ -262,7 +262,7 @@ class AerospikeRedis {
     return $this->out($r);
   }
 
-  public function hIncrBy($key, $field, $value) {
+  protected function _hIncrBy($key, $field, $value) {
     $operations = array(
       array("op" => Aerospike::OPERATOR_INCR, "bin" => $field, "val" => $value),
       array("op" => Aerospike::OPERATOR_READ, "bin" => $field),
@@ -275,6 +275,10 @@ class AerospikeRedis {
       return $this->out(false);
     }
     throw new Exception("Aerospike error : ".$this->db->error());
+  }
+
+  public function hIncrBy($key, $field, $value) {
+    return $this->_hIncrBy($key, $field, $value);
   }
 
   public function setnx($key, $value) {
@@ -330,6 +334,83 @@ class AerospikeRedis {
   }
 
   public function close() {
+  }
+
+}
+
+class AerospikeRedisOneBin extends AerospikeRedis {
+
+  public function hSet($key, $field, $value) {
+    $status = $this->db->apply($this->format_key($key), "redis", "HSET_ONE_BIN", array(self::BIN_NAME, $field, $this->serialize($value)), $ret_val);
+    $this->check_result($status);
+    return $this->out(is_array($ret_val) ? 0 : $ret_val);
+  }
+
+  public function hGet($key, $field) {
+    $status = $this->db->apply($this->format_key($key), "redis", "HGET_ONE_BIN", array(self::BIN_NAME, $field), $ret_val);
+    $this->check_result($status);
+    return $this->out(is_array($ret_val) ? false : $this->deserialize($ret_val));
+  }
+
+  public function hDel($key, $field) {
+    $status = $this->db->apply($this->format_key($key), "redis", "HDEL_ONE_BIN", array(self::BIN_NAME, $field), $ret_val);
+    $this->check_result($status);
+    return $this->out(is_array($ret_val) ? 0 : $ret_val);
+  }
+
+  public function hmSet($key, $values) {
+    foreach(array_keys($values) as $k) {
+      $values[$k] = $this->serialize($values[$k]);
+    }
+    $status = $this->db->apply($this->format_key($key), "redis", "HMSET_ONE_BIN", array(self::BIN_NAME, $values), $ret_val);
+    $this->check_result($status);
+    $this->assert_ok($ret_val);
+    return $this->out(true);
+  }
+
+  public function hmGet($key, $keys) {
+    $status = $this->db->apply($this->format_key($key), "redis", "HMGET_ONE_BIN", array(self::BIN_NAME, $keys), $ret_val);
+    $this->check_result($status);
+    $r = array();
+    for($i = 0; $i < count($ret_val); $i ++) {
+      $r[$keys[$i]] = $this->deserialize($ret_val[$i] === NULL ? false : $ret_val[$i]);
+    }
+    return $this->out($r);
+  }
+
+  public function hGetAll($key) {
+    $status = $this->db->apply($this->format_key($key), "redis", "HGETALL_ONE_BIN", array(self::BIN_NAME), $ret_val);
+    $this->check_result($status);
+    $r = array();
+    for($i = 0; $i < count($ret_val); $i += 2) {
+      $r[$ret_val[$i]] = $this->deserialize($ret_val[$i + 1]);
+    }
+    return $this->out($r);
+  }
+
+  public function hIncrBy($key, $field, $value) {
+    $status = $this->db->apply($this->format_key($key), "redis", "HINCRBY_ONE_BIN", array(self::BIN_NAME, $field, $value), $ret_val);
+    $this->check_result($status);
+    return $this->out($ret_val);
+  }
+
+  public function batch($key, $operations) {
+    $x = array();
+    if (isset($operations['hIncrBy'])) {
+      foreach(array_keys($operations['hIncrBy']) as $k) {
+        array_push($x, array("op" => "incr", "field" => $k, "increment" => $operations['hIncrBy'][$k]));
+      }
+    }
+    if (isset($operations['setTimeout'])) {
+      array_push($x, array("op" => "touch", "ttl" => $operations['setTimeout']));
+    }
+    if (count($x) === 1 && isset($operations['setTimeout'])) {
+      $this->setTimeout($key, $operations['setTimeout']);
+      return $this->out(true);
+    }
+    $status = $this->db->apply($this->format_key($key), "redis", "BATCH_ONE_BIN", array(self::BIN_NAME, $x), $ret_val);
+    $this->check_result($status);
+    return $this->out(true);
   }
 
 }

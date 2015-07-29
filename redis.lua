@@ -93,7 +93,7 @@ end
 
 function LSIZE(rec, bin)
 	if (EXISTS(rec, bin)) then
-		local l     = rec[bin]
+		local l = rec[bin]
 		return #l
 	end
 	return nil
@@ -101,7 +101,7 @@ end
 
 function RPOP (rec, bin, count)
 	if (EXISTS(rec, bin)) then
-		local l     = rec[bin]
+		local l = rec[bin]
  		local result_list = nil
 		if (#l <= count) then
 			result_list = rec[bin]
@@ -179,11 +179,7 @@ end
 function HMGET(rec, field_list)
 	local res = list()
 	for field in list.iterator(field_list) do
-		if (rec[field] ~= nil) then
-			list.append(res, rec[field])
-		else
-			list.append(res, nil)
-		end
+		list.append(res, rec[field])
 	end
 	return res
 end
@@ -195,3 +191,119 @@ function HMSET(rec, field_value_map)
 	UPDATE(rec)
 	return "OK"
 end
+
+function HSET_ONE_BIN(rec, bin, field, value)
+	local created = 0
+	local m = rec[bin]
+	if (m == nil) then
+		m = map()
+	end
+	if (m[field] == nil) then
+		created = 1
+	end
+	m[field] = value
+	rec[bin] = m
+	UPDATE(rec)
+	return created
+end
+
+function HGET_ONE_BIN(rec, bin, field)
+	if (EXISTS(rec, bin)) then
+		return rec[bin][field]
+	end
+	return  nil
+end
+
+function HDEL_ONE_BIN(rec, bin, field)
+	if (EXISTS(rec, bin)) then
+		local m = rec[bin]
+		if (m[field] ~= nil) then
+			m[field] = nil
+			rec[bin] = m
+			UPDATE(rec)
+			return 1
+		end
+	end
+	return 0
+end
+
+function HMSET_ONE_BIN(rec, bin, field_value_map)
+	local m = map()
+	if (EXISTS(rec, bin)) then
+		m = rec[bin]
+	end
+	for k,v in map.iterator(field_value_map) do
+		m[k] = v
+	end
+	rec[bin] = m
+	UPDATE(rec)
+	return "OK"
+end
+
+function HMGET_ONE_BIN(rec, bin, field_list)
+	local res = list()
+	local m = map()
+	if (EXISTS(rec, bin)) then
+		m = rec[bin]
+	end
+	for field in list.iterator(field_list) do
+		list.append(res, m[field])
+	end
+	return res
+end
+
+function HGETALL_ONE_BIN(rec, bin)
+	local l = list()
+	local m = map()
+	if (EXISTS(rec, bin)) then
+		m = rec[bin]
+	end
+	for k,v in map.iterator(m) do
+		if (v ~= nil) then
+			list.append(l, k);
+			list.append(l, v);
+		end
+	end
+	return l
+end
+
+local function INCR (m, field, increment)
+	if (m[field] == nil) then
+		m[field] = increment
+	else
+		if (type(m[field]) == "number") then
+			m[field] = m[field] + increment
+		end
+	end
+end
+
+function HINCRBY_ONE_BIN(rec, bin, field, increment)
+	local m = map()
+	if (EXISTS(rec, bin)) then
+		m = rec[bin]
+	end
+	INCR(m, field, increment)
+	rec[bin] = m
+	UPDATE(rec)
+	return m[field]
+end
+
+function BATCH_ONE_BIN(rec, bin, op_list)
+	local m = map()
+	if (EXISTS(rec, bin)) then
+		m = rec[bin]
+	end
+	for op in list.iterator(op_list) do
+		if (op['op'] == 'incr') then
+			INCR(m, op['field'], op['increment'])
+		end
+		if (op['op'] == 'touch') then
+			local z = 9 / 0
+		end
+	end
+	rec[bin] = m
+	UPDATE(rec)
+	return "OK"
+end
+
+
