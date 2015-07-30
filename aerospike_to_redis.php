@@ -304,7 +304,7 @@ class AerospikeRedis {
       }
     }
     if (isset($operations['setTimeout'])) {
-      array_push($x, array("op" => Aerospike::OPERATOR_TOUCH, "ttl" => $operations['setTimeout']));
+      array_push($x, array("op" => Aerospike::OPERATOR_TOUCH, "ttl" => intval($operations['setTimeout'])));
     }
     if (count($x) === 1 && isset($operations['setTimeout'])) {
       $this->setTimeout($key, $operations['setTimeout']);

@@ -296,9 +296,10 @@ function BATCH_ONE_BIN(rec, bin, op_list)
 	for op in list.iterator(op_list) do
 		if (op['op'] == 'incr') then
 			INCR(m, op['field'], op['increment'])
-		end
-		if (op['op'] == 'touch') then
-			local z = 9 / 0
+		elseif (op['op'] == 'touch') then
+			record.set_ttl(rec, op['ttl'])
+		else
+			error('Unknown operation')
 		end
 	end
 	rec[bin] = m
