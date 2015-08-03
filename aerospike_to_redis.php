@@ -51,7 +51,7 @@ class AerospikeRedis {
   }
 
   protected function deserialize($v) {
-    if (substr($v, 0, 6) === "__64__") {
+    if (is_string($v) && substr($v, 0, 6) === "__64__") {
       return base64_decode(substr($v, 6));
     }
     if (is_int($v)) {
@@ -262,11 +262,14 @@ class AerospikeRedis {
     return $this->out($r);
   }
 
-  protected function _hIncrBy($key, $field, $value) {
+  protected function _hIncrBy($key, $field, $value, $ttl = null) {
     $operations = array(
       array("op" => Aerospike::OPERATOR_INCR, "bin" => $field, "val" => $value),
       array("op" => Aerospike::OPERATOR_READ, "bin" => $field),
     );
+    if ($ttl !== null) {
+      array_push($operations, array("op" => Aerospike::OPERATOR_TOUCH, "ttl" => intval($ttl)));
+    }
     $status = $this->db->operate($this->format_key($key), $operations, $ret_val, $this->operate_options);
      if ($status === Aerospike::OK) {
       return $this->out($ret_val[$field]);
@@ -279,6 +282,10 @@ class AerospikeRedis {
 
   public function hIncrBy($key, $field, $value) {
     return $this->_hIncrBy($key, $field, $value);
+  }
+
+  public function hIncrByEx($key, $field, $value, $ttl) {
+    return $this->_hIncrBy($key, $field, $value, $ttl);
   }
 
   public function setnx($key, $value) {
@@ -346,10 +353,26 @@ class AerospikeRedisOneBin extends AerospikeRedis {
     return $this->out(is_array($ret_val) ? 0 : $ret_val);
   }
 
+  private function _hGetAll($key) {
+    $status = $this->db->get($this->format_key($key), $ret_val, array(self::BIN_NAME), $this->read_options);
+    if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
+      return array();
+    }
+    if ($status === Aerospike::OK) {
+      $r = array();
+      foreach(array_keys($ret_val['bins']['r']) as $k) {
+        if ($ret_val['bins']['r'][$k] !== NULL) {
+          $r[$k] = $this->deserialize($ret_val['bins']['r'][$k]);
+        }
+      }
+      return $r;
+    }
+    throw new Exception("Aerospike error : ".$this->db->error());
+  }
+
   public function hGet($key, $field) {
-    $status = $this->db->apply($this->format_key($key), "redis", "HGET_ONE_BIN", array(self::BIN_NAME, $field), $ret_val);
-    $this->check_result($status);
-    return $this->out(is_array($ret_val) ? false : $this->deserialize($ret_val));
+    $all = $this->_hGetAll($key);
+    return $this->out(isset($all[$field]) ? $all[$field] : false);
   }
 
   public function hDel($key, $field) {
@@ -369,23 +392,16 @@ class AerospikeRedisOneBin extends AerospikeRedis {
   }
 
   public function hmGet($key, $keys) {
-    $status = $this->db->apply($this->format_key($key), "redis", "HMGET_ONE_BIN", array(self::BIN_NAME, $keys), $ret_val);
-    $this->check_result($status);
+    $all = $this->_hGetAll($key);
     $r = array();
-    for($i = 0; $i < count($ret_val); $i ++) {
-      $r[$keys[$i]] = $this->deserialize($ret_val[$i] === NULL ? false : $ret_val[$i]);
+    foreach($keys as $k) {
+      $r[$k] = isset($all[$k]) ? $all[$k] : false;
     }
     return $this->out($r);
   }
 
   public function hGetAll($key) {
-    $status = $this->db->apply($this->format_key($key), "redis", "HGETALL_ONE_BIN", array(self::BIN_NAME), $ret_val);
-    $this->check_result($status);
-    $r = array();
-    for($i = 0; $i < count($ret_val); $i += 2) {
-      $r[$ret_val[$i]] = $this->deserialize($ret_val[$i + 1]);
-    }
-    return $this->out($r);
+    return $this->out($this->_hGetAll($key));
   }
 
   public function hIncrBy($key, $field, $value) {

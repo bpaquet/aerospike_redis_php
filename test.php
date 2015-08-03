@@ -76,6 +76,9 @@ function compare_map($a, $b) {
   compare($a, $b);
 }
 
+$json = file_get_contents('big_json.json');
+$bin = gzcompress($json);
+
 echo("Connect\n");
 compare($r->connect('127.0.0.1', 6379), true);
 
@@ -124,9 +127,6 @@ compare($r->get('myKey'), "toto\r\ntiti");
 
 compare($r->set('myKey', "toto\x00\x01\x02tata"), true);
 compare($r->get('myKey'), "toto\x00\x01\x02tata");
-
-$json = file_get_contents('big_json.json');
-$bin = gzcompress($json);
 
 echo("Get Set big data " . strlen($json)."\n");
 
@@ -295,7 +295,6 @@ compare($r->hGet('myKey', "b"), $bin);
 compare($r->hSet('myKey', "veryverylongke", "toto"), 1);
 compare($r->hGet('myKey', "veryverylongke"), "toto");
 
-
 echo("hmSet hmGet\n");
 $r->del('myKey');
 compare($r->hmGet('myKey', array('a','b','c')), array('a' => false, 'b'  => false, 'c' => false));
@@ -335,7 +334,13 @@ compare($r->hIncrBy('myKey', 'a', 0), -4);
 compare($r->del('myKey'), 1);
 compare($r->hIncrBy('myKey', 'a', 0), 0);
 
-if (method_exists($r, 'batch')) {
+if (!isset($_ENV['USE_REDIS'])) {
+  echo("hIncrByEx\n");
+  $r->del('myKey');
+  compare($r->hIncrByEx('myKey', 'a', 1, 500), 1);
+  upper($r->ttl('myKey'), 100);
+  lower($r->ttl('myKey'), 1000);
+
   echo("Batch\n");
 
   $r->del('myKey');
@@ -389,7 +394,7 @@ compare($r->setnx('myKey', 'a'), true);
 compare($r->setnx('myKey', 'b'), false);
 compare($r->get('myKey'), 'a');
 
-if (method_exists($r, 'setnxex')) {
+if (!isset($_ENV['USE_REDIS'])) {
   echo("SetNxEx\n");
   $r->del('myKey');
   compare($r->setnxex('myKey', 2, 'a'), true);

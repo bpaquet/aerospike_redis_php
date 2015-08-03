@@ -154,10 +154,12 @@ end
 
 function HGETALL(rec)
 	local l = list()
-	local names = record.bin_names(rec)
-	for k, name in ipairs(names) do
-		list.append(l, name);
-		list.append(l, rec[name]);
+	if record.ttl(rec) < (MAX_INT - 60) then
+		local names = record.bin_names(rec)
+		for k, name in ipairs(names) do
+			list.append(l, name);
+			list.append(l, rec[name]);
+		end
 	end
 	return l
 end
@@ -207,13 +209,6 @@ function HSET_ONE_BIN(rec, bin, field, value)
 	return created
 end
 
-function HGET_ONE_BIN(rec, bin, field)
-	if (EXISTS(rec, bin)) then
-		return rec[bin][field]
-	end
-	return  nil
-end
-
 function HDEL_ONE_BIN(rec, bin, field)
 	if (EXISTS(rec, bin)) then
 		local m = rec[bin]
@@ -238,33 +233,6 @@ function HMSET_ONE_BIN(rec, bin, field_value_map)
 	rec[bin] = m
 	UPDATE(rec)
 	return "OK"
-end
-
-function HMGET_ONE_BIN(rec, bin, field_list)
-	local res = list()
-	local m = map()
-	if (EXISTS(rec, bin)) then
-		m = rec[bin]
-	end
-	for field in list.iterator(field_list) do
-		list.append(res, m[field])
-	end
-	return res
-end
-
-function HGETALL_ONE_BIN(rec, bin)
-	local l = list()
-	local m = map()
-	if (EXISTS(rec, bin)) then
-		m = rec[bin]
-	end
-	for k,v in map.iterator(m) do
-		if (v ~= nil) then
-			list.append(l, k);
-			list.append(l, v);
-		end
-	end
-	return l
 end
 
 local function INCR (m, field, increment)
