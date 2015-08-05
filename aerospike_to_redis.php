@@ -4,23 +4,29 @@ class AerospikeRedis {
 
   const BIN_NAME = "r";
 
-  public function __construct($db, $ns, $set, $read_options = array(Aerospike::OPT_POLICY_CONSISTENCY => Aerospike::POLICY_CONSISTENCY_ONE, Aerospike::OPT_POLICY_REPLICA => Aerospike::POLICY_REPLICA_ANY), $write_options = array(Aerospike::OPT_POLICY_COMMIT_LEVEL => Aerospike::POLICY_COMMIT_LEVEL_MASTER)) {
+  public function __construct($db, $ns, $set, $options = array()) {
     $this->db = $db;
     $this->ns = $ns;
     $this->set = $set;
     $this->on_multi = false;
-    $this->read_options = $read_options;
-    $this->write_options = $write_options;
-    $this->setex_options = array();
+    if (!isset($options['read_options'])) {
+      $options['read_options'] = array(Aerospike::OPT_POLICY_CONSISTENCY => Aerospike::POLICY_CONSISTENCY_ONE, Aerospike::OPT_POLICY_REPLICA => Aerospike::POLICY_REPLICA_ANY);
+    }
+    if (!isset($options['write_options'])) {
+      $options['write_options'] = array(Aerospike::OPT_POLICY_COMMIT_LEVEL => Aerospike::POLICY_COMMIT_LEVEL_MASTER);
+    }
+    $this->read_options = $options['read_options'];
+    $this->write_options = $options['write_options'];
+    $this->setnx_options = array();
     $this->operate_options = array();
-    foreach(array_keys($write_options) as $k) {
-      $this->setex_options[$k] = $write_options[$k];
-      $this->operate_options[$k] = $write_options[$k];
+    foreach(array_keys($this->write_options) as $k) {
+      $this->setnx_options[$k] = $this->write_options[$k];
+      $this->operate_options[$k] = $this->write_options[$k];
     }
-    foreach(array_keys($read_options) as $k) {
-      $this->operate_options[$k] = $read_options[$k];
+    foreach(array_keys($this->read_options) as $k) {
+      $this->operate_options[$k] = $this->read_options[$k];
     }
-    $this->setex_options[Aerospike::OPT_POLICY_EXISTS] = Aerospike::POLICY_EXISTS_CREATE;
+    $this->setnx_options[Aerospike::OPT_POLICY_EXISTS] = Aerospike::POLICY_EXISTS_CREATE;
   }
 
   protected function format_key($key) {
@@ -104,12 +110,15 @@ class AerospikeRedis {
   }
 
   public function setTimeout($key, $ttl) {
+    return $this->out($this->_setTimeout($key, $ttl));
+  }
+  protected function _setTimeout($key, $ttl) {
     $status = $this->db->touch($this->format_key($key), $ttl, $this->write_options);
     if ($status === Aerospike::OK) {
-      return $this->out(true);
+      return true;
     }
     if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
-      return $this->out(false);
+      return false;
     }
     throw new Exception("Aerospike error : ".$this->db->error());
   }
@@ -121,12 +130,16 @@ class AerospikeRedis {
   }
 
   public function del($key) {
+    return $this->out($this->_del($key));
+  }
+
+  protected function _del($key) {
     $status = $this->db->remove($this->format_key($key), $this->write_options);
     if ($status === Aerospike::OK) {
-      return $this->out(1);
+      return 1;
     }
     if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
-      return $this->out(0);
+      return 0;
     }
     throw new Exception("Aerospike error : ".$this->db->error());
   }
@@ -293,7 +306,7 @@ class AerospikeRedis {
   }
 
   public function setnxex($key, $ttl, $value) {
-    $status = $this->db->put($this->format_key($key), array(self::BIN_NAME => $this->serialize($value)), $ttl, $this->setex_options);
+    $status = $this->db->put($this->format_key($key), array(self::BIN_NAME => $this->serialize($value)), $ttl, $this->setnx_options);
     if ($status === Aerospike::OK) {
       return $this->out(true);
     }
@@ -345,87 +358,204 @@ class AerospikeRedis {
 
 }
 
-class AerospikeRedisOneBin extends AerospikeRedis {
+class AerospikeRedisExpandedMap extends AerospikeRedis {
 
-  public function hSet($key, $field, $value) {
-    $status = $this->db->apply($this->format_key($key), "redis", "HSET_ONE_BIN", array(self::BIN_NAME, $field, $this->serialize($value)), $ret_val);
-    $this->check_result($status);
-    return $this->out(is_array($ret_val) ? 0 : $ret_val);
+  const MAIN_KEY_BIN_NAME = "m";
+  const SECOND_KEY_BIN_NAME = "s";
+  const VALUE_BIN_NAME = "v";
+  const ROOT_BIN_NAME = "z";
+  const MAIN_SUFFIX = "____MAIN____";
+
+  public function __construct($db, $ns, $set, $options = array()) {
+    parent::__construct($db, $ns, $set, $options);
+    if (!isset($options['default_ttl'])) {
+      $options['default_ttl'] = 3600 * 24 * 31;
+    }
+    $this->default_ttl = $options['default_ttl'];
   }
 
-  private function _hGetAll($key) {
-    $status = $this->db->get($this->format_key($key), $ret_val, array(self::BIN_NAME), $this->read_options);
-    if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
-      return array();
-    }
+  private function format_composite_key($key, $field) {
+    return "composite_" . $key . "_" . $field;
+  }
+
+  private function composite_ttl($ttl) {
+    return $ttl === null ? $this->default_ttl : $ttl;
+  }
+
+  private function composite_exists($key) {
+    $status = $this->db->get($this->format_key($this->format_composite_key($key, self::MAIN_SUFFIX)), $ret_val, array(self::ROOT_BIN_NAME), $this->read_options);
     if ($status === Aerospike::OK) {
-      $r = array();
-      foreach(array_keys($ret_val['bins']['r']) as $k) {
-        if ($ret_val['bins']['r'][$k] !== NULL) {
-          $r[$k] = $this->deserialize($ret_val['bins']['r'][$k]);
-        }
-      }
-      return $r;
+      return $ret_val['bins'][self::ROOT_BIN_NAME];
+    }
+    if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
+      return false;
     }
     throw new Exception("Aerospike error : ".$this->db->error());
   }
 
+  private function composite_exists_or_create($key, $ttl, &$created) {
+    $created = false;
+    $suffixed_key = $this->composite_exists($key);
+    if ($suffixed_key !== false) {
+      if ($ttl !== null) {
+        parent::_setTimeout($this->format_composite_key($key, self::MAIN_SUFFIX), $ttl);
+      }
+      return $suffixed_key;
+    }
+    $suffixed_key = $key. '_' . rand();
+    $status = $this->db->put($this->format_key($this->format_composite_key($key, self::MAIN_SUFFIX)), array(self::ROOT_BIN_NAME => $suffixed_key), $ttl, $this->setnx_options);
+    if ($status === Aerospike::OK) {
+      $created = true;
+      return $suffixed_key;
+    }
+    if ($status === Aerospike::ERR_RECORD_EXISTS) {
+      return $this->composite_exists($keys);
+    }
+    throw new Exception("Aerospike error : ".$this->db->error());
+  }
+
+  public function hSet($key, $field, $value) {
+    $suffixed_key = $this->composite_exists_or_create($key, null, $created);
+    $k = $this->format_key($this->format_composite_key($suffixed_key, $field));
+    $exists = $this->db->exists($k, $metadata, $this->read_options);
+    $status = $this->db->put($k, array(self::MAIN_KEY_BIN_NAME => $suffixed_key, self::SECOND_KEY_BIN_NAME => $field, self::VALUE_BIN_NAME => $this->serialize($value)), $this->composite_ttl(null), $this->write_options);
+    $this->check_result($status);
+
+    return $this->out($created || $exists === Aerospike::ERR_RECORD_NOT_FOUND ? 1 : 0);
+  }
+
   public function hGet($key, $field) {
-    $all = $this->_hGetAll($key);
-    return $this->out(isset($all[$field]) ? $all[$field] : false);
+    $suffixed_key = $this->composite_exists($key);
+    if ($suffixed_key !== false) {
+      $status = $this->db->get($this->format_key($this->format_composite_key($suffixed_key, $field)), $ret_val, array(self::VALUE_BIN_NAME), $this->read_options);
+      if ($status === Aerospike::OK) {
+        return $this->out($ret_val['bins'][self::VALUE_BIN_NAME] === NULL ? false : $this->deserialize($ret_val['bins'][self::VALUE_BIN_NAME]));
+      }
+      if ($status !== Aerospike::ERR_RECORD_NOT_FOUND) {
+        throw new Exception("Aerospike error : ".$this->db->error());
+      }
+    }
+    return $this->out(false);
   }
 
   public function hDel($key, $field) {
-    $status = $this->db->apply($this->format_key($key), "redis", "HDEL_ONE_BIN", array(self::BIN_NAME, $field), $ret_val);
-    $this->check_result($status);
-    return $this->out(is_array($ret_val) ? 0 : $ret_val);
+    $suffixed_key = $this->composite_exists($key);
+    if ($suffixed_key !== false) {
+      return parent::del($this->format_composite_key($suffixed_key, $field));
+    }
+    return $this->out(0);
+  }
+
+  public function del($key) {
+    if (parent::_del($this->format_composite_key($key, self::MAIN_SUFFIX)) === 1) {
+      return $this->out(1);
+    }
+    return parent::del($key);
+  }
+
+  public function setTimeout($key, $ttl) {
+    if (parent::_setTimeout($this->format_composite_key($key, self::MAIN_SUFFIX), $ttl) === true) {
+      return $this->out(true);
+    }
+    return parent::setTimeout($key, $ttl);
+  }
+
+  public function ttl($key) {
+    $status = $this->db->exists($this->format_key($this->format_composite_key($key, self::MAIN_SUFFIX)), $ret_val, $this->read_options);
+    if ($status === Aerospike::OK) {
+      return $this->out(intval($ret_val["ttl"]));
+    }
+    return $this->out(parent::ttl($key));
   }
 
   public function hmSet($key, $values) {
+    $suffixed_key = $this->composite_exists_or_create($key, null, $created);
     foreach(array_keys($values) as $k) {
-      $values[$k] = $this->serialize($values[$k]);
+      $status = $this->db->put($this->format_key($this->format_composite_key($suffixed_key, $k)), array(self::MAIN_KEY_BIN_NAME => $suffixed_key, self::SECOND_KEY_BIN_NAME => $k, self::VALUE_BIN_NAME => $this->serialize($this->serialize($values[$k]))), $this->composite_ttl(null), $this->write_options);
+      $this->check_result($status);
     }
-    $status = $this->db->apply($this->format_key($key), "redis", "HMSET_ONE_BIN", array(self::BIN_NAME, $values), $ret_val);
-    $this->check_result($status);
-    $this->assert_ok($ret_val);
     return $this->out(true);
   }
 
   public function hmGet($key, $keys) {
-    $all = $this->_hGetAll($key);
     $r = array();
+    $suffixed_key = $this->composite_exists($key);
+    if ($suffixed_key !== false) {
+      foreach($keys as $k) {
+        $status = $this->db->get($this->format_key($this->format_composite_key($suffixed_key, $k)), $ret_val, array(self::VALUE_BIN_NAME), $this->read_options);
+        if ($status === Aerospike::OK) {
+          $r[$k] = $ret_val['bins'][self::VALUE_BIN_NAME] === NULL ? false : $this->deserialize($ret_val['bins'][self::VALUE_BIN_NAME]);
+        }
+        elseif ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
+          $r[$k] = false;
+        }
+        else {
+          throw new Exception("Aerospike error : ".$this->db->error());
+        }
+      }
+      return $this->out($r);
+    }
     foreach($keys as $k) {
-      $r[$k] = isset($all[$k]) ? $all[$k] : false;
+      $r[$k] = false;
     }
     return $this->out($r);
   }
 
   public function hGetAll($key) {
-    return $this->out($this->_hGetAll($key));
+    $r = array();
+    $suffixed_key = $this->composite_exists($key);
+    if ($suffixed_key !== false) {
+      $where = Aerospike::predicateEquals(self::MAIN_KEY_BIN_NAME, $suffixed_key);
+      $status = $this->db->query($this->ns, $this->set, $where, function ($record) use (&$r) {
+        $r[$record['bins'][self::SECOND_KEY_BIN_NAME]] = $this->deserialize($record['bins'][self::VALUE_BIN_NAME]);
+      });
+      $this->check_result($status);
+    }
+    return $this->out($r);
   }
 
   public function hIncrBy($key, $field, $value) {
-    $status = $this->db->apply($this->format_key($key), "redis", "HINCRBY_ONE_BIN", array(self::BIN_NAME, $field, $value), $ret_val);
-    $this->check_result($status);
-    return $this->out($ret_val);
+    return $this->hIncrByEx($key, $field, $value, null);
+  }
+
+  private function compositeIncr($suffixed_key, $field, $value) {
+    $operations = array(
+      array("op" => Aerospike::OPERATOR_WRITE, "bin" => self::MAIN_KEY_BIN_NAME, "val" => $suffixed_key),
+      array("op" => Aerospike::OPERATOR_WRITE, "bin" => self::SECOND_KEY_BIN_NAME, "val" => $field),
+      array("op" => Aerospike::OPERATOR_INCR, "bin" => self::VALUE_BIN_NAME, "val" => $value),
+      array("op" => Aerospike::OPERATOR_READ, "bin" => self::VALUE_BIN_NAME),
+      array("op" => Aerospike::OPERATOR_TOUCH, "ttl" => $this->composite_ttl(null)),
+    );
+    $k = $this->format_composite_key($suffixed_key, $field);
+    $status = $this->db->operate($this->format_key($k), $operations, $ret_val, $this->operate_options);
+     if ($status === Aerospike::OK) {
+      return $ret_val[self::VALUE_BIN_NAME];
+    }
+    if ($status === Aerospike::ERR_BIN_INCOMPATIBLE_TYPE) {
+      return false;
+    }
+    throw new Exception("Aerospike error : ".$this->db->error());
+  }
+
+  public function hIncrByEx($key, $field, $value, $ttl) {
+    $suffixed_key = $this->composite_exists_or_create($key, $ttl, $created);
+    return $this->compositeIncr($suffixed_key, $field, $value);
   }
 
   public function batch($key, $operations) {
-    $x = array();
     if (isset($operations['hIncrBy'])) {
+      $ttl = isset($operations['setTimeout']) ? $operations['setTimeout'] : $ttl;
+      $suffixed_key = $this->composite_exists_or_create($key, $ttl, $created);
       foreach(array_keys($operations['hIncrBy']) as $k) {
-        array_push($x, array("op" => "incr", "field" => $k, "increment" => $operations['hIncrBy'][$k]));
+        if ($this->compositeIncr($suffixed_key, $k, $operations['hIncrBy'][$k]) === false) {
+          throw new Exception("Aerospike error : ".$this->db->error());
+        }
       }
-    }
-    if (isset($operations['setTimeout'])) {
-      array_push($x, array("op" => "touch", "ttl" => $operations['setTimeout']));
-    }
-    if (count($x) === 1 && isset($operations['setTimeout'])) {
-      $this->setTimeout($key, $operations['setTimeout']);
       return $this->out(true);
     }
-    $status = $this->db->apply($this->format_key($key), "redis", "BATCH_ONE_BIN", array(self::BIN_NAME, $x), $ret_val);
-    $this->check_result($status);
+    if (isset($operations['setTimeout'])) {
+      parent::_setTimeout($this->format_composite_key($key, self::MAIN_SUFFIX), $operations['setTimeout']);
+    }
     return $this->out(true);
   }
 
