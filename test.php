@@ -159,6 +159,7 @@ compare($r->get('myKey2'), false);
 echo("Array\n");
 
 $r->del('myKey');
+compare($r->lSize('mykey'), 0);
 compare($r->rpop('myKey'), false);
 compare($r->lpop('myKey'), false);
 compare($r->lsize('myKey'), 0);
