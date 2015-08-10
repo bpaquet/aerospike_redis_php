@@ -23,6 +23,12 @@ function LPOP (rec, bin, count)
 		local l = rec[bin]
 		local new_l = list.drop(l, count)
 		rec[bin] = new_l
+		local length = #new_l
+		if (length == 0) then
+			rec[bin .. '_size'] = nil
+		else
+			rec[bin .. '_size'] = length
+		end
 		UPDATE(rec)
 		return list.take(l, count)
 	end
@@ -37,6 +43,7 @@ function LPUSH(rec, bin, value)
   list.prepend(l, value)
   rec[bin] = l
   local length = #l
+  rec[bin .. '_size']= length
   UPDATE(rec)
   return length
 end
@@ -86,17 +93,15 @@ end
 function LTRIM (rec, bin, start, stop)
 	if (EXISTS(rec, bin)) then
 		rec[bin] = ARRAY_RANGE(rec, bin, start, stop)
+		local length = #rec[bin]
+		if (length == 0) then
+			rec[bin .. '_size'] = nil
+		else
+			rec[bin .. '_size'] = length
+		end
 		UPDATE(rec)
 	end
 	return "OK"
-end
-
-function LSIZE(rec, bin)
-	if (EXISTS(rec, bin)) then
-		local l = rec[bin]
-		return #l
-	end
-	return nil
 end
 
 function RPOP (rec, bin, count)
@@ -105,11 +110,13 @@ function RPOP (rec, bin, count)
  		local result_list = nil
 		if (#l <= count) then
 			result_list = rec[bin]
+			rec[bin .. '_size']= nil
 			rec[bin] = nil
 		else
       local start = #l - count
 			result_list = list.drop(l, start)
 			rec[bin] = list.take(l, start)
+			rec[bin .. '_size']= #rec[bin]
 		end
 		UPDATE(rec)
 		if (result_list ~= nil) then
@@ -129,6 +136,7 @@ function RPUSH (rec, bin, value)
 	list.append(l, value)
 	rec[bin] = l
 	local length = #l
+	rec[bin .. '_size']= length
 	UPDATE(rec)
 	return length
 end

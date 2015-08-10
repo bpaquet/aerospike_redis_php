@@ -195,9 +195,15 @@ class AerospikeRedis {
   }
 
   public function lsize($key) {
-    $status = $this->db->apply($this->format_key($key), "redis", "LSIZE", array(self::BIN_NAME), $ret_val);
-    $this->check_result($status);
-    return $this->out(is_array($ret_val) ? 0 : $ret_val);
+    $status = $this->db->get($this->format_key($key), $ret_val, array(self::BIN_NAME . '_size'), $this->read_options);
+    if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
+      return $this->out(0);
+    }
+    if ($status === Aerospike::OK) {
+      $l = $ret_val["bins"][self::BIN_NAME . '_size'];
+      return $this->out($l === NULL ? 0 : $l);
+    }
+    throw new Exception("Aerospike error : ".$this->db->error());
   }
 
   public function ltrim($key, $start, $end) {
