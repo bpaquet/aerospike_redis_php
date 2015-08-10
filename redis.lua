@@ -18,7 +18,7 @@ local function UPDATE(rec)
 	end
 end
 
-function LPOP (rec, bin, count)
+function LPOP(rec, bin, count, ttl)
 	if (EXISTS(rec, bin)) then
 		local l = rec[bin]
 		local new_l = list.drop(l, count)
@@ -29,13 +29,16 @@ function LPOP (rec, bin, count)
 		else
 			rec[bin .. '_size'] = length
 		end
+		if (ttl ~= -1) then
+			record.set_ttl(rec, ttl)
+		end
 		UPDATE(rec)
 		return list.take(l, count)
 	end
 	return nil
 end
 
-function LPUSH(rec, bin, value)
+function LPUSH(rec, bin, value, ttl)
   local l = rec[bin]
   if (l == nil) then
     l = list()
@@ -44,6 +47,9 @@ function LPUSH(rec, bin, value)
   rec[bin] = l
   local length = #l
   rec[bin .. '_size']= length
+	if (ttl ~= -1) then
+		record.set_ttl(rec, ttl)
+	end
   UPDATE(rec)
   return length
 end
@@ -104,7 +110,7 @@ function LTRIM (rec, bin, start, stop)
 	return "OK"
 end
 
-function RPOP (rec, bin, count)
+function RPOP(rec, bin, count, ttl)
 	if (EXISTS(rec, bin)) then
 		local l = rec[bin]
  		local result_list = nil
@@ -118,6 +124,9 @@ function RPOP (rec, bin, count)
 			rec[bin] = list.take(l, start)
 			rec[bin .. '_size']= #rec[bin]
 		end
+		if (ttl ~= -1) then
+			record.set_ttl(rec, ttl)
+		end
 		UPDATE(rec)
 		if (result_list ~= nil) then
 			return result_list
@@ -128,7 +137,7 @@ function RPOP (rec, bin, count)
 	return nil
 end
 
-function RPUSH (rec, bin, value)
+function RPUSH(rec, bin, value, ttl)
 	local l = rec[bin]
 	if (l == nil) then
 		l = list()
@@ -137,6 +146,9 @@ function RPUSH (rec, bin, value)
 	rec[bin] = l
 	local length = #l
 	rec[bin .. '_size']= length
+	if (ttl ~= -1) then
+		record.set_ttl(rec, ttl)
+	end
 	UPDATE(rec)
 	return length
 end

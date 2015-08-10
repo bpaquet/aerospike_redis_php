@@ -170,28 +170,44 @@ class AerospikeRedis {
       return $this->_hIncrBy($key, self::BIN_NAME, $value);
   }
 
+  public function rpushEx($key, $value, $ttl = -1) {
+    $status = $this->db->apply($this->format_key($key), "redis", "RPUSH", array(self::BIN_NAME, $this->serialize($value), $ttl), $ret_val);
+    $this->check_result($status);
+    return $this->out(is_array($ret_val) ? false : $ret_val);
+  }
+
   public function rpush($key, $value) {
-    $status = $this->db->apply($this->format_key($key), "redis", "RPUSH", array(self::BIN_NAME, $this->serialize($value)), $ret_val);
+    return $this->rpushEx($key, $value);
+  }
+
+  public function lpushEx($key, $value, $ttl = -1) {
+    $status = $this->db->apply($this->format_key($key), "redis", "LPUSH", array(self::BIN_NAME, $this->serialize($value), $ttl), $ret_val);
     $this->check_result($status);
     return $this->out(is_array($ret_val) ? false : $ret_val);
   }
 
   public function lpush($key, $value) {
-    $status = $this->db->apply($this->format_key($key), "redis", "LPUSH", array(self::BIN_NAME, $this->serialize($value)), $ret_val);
+    return $this->lpushEx($key, $value);
+  }
+
+  public function rpopEx($key, $ttl = -1) {
+    $status = $this->db->apply($this->format_key($key), "redis", "RPOP", array(self::BIN_NAME, 1, $ttl), $ret_val);
     $this->check_result($status);
-    return $this->out(is_array($ret_val) ? false : $ret_val);
+    return $this->out(count($ret_val) == 0 ? false : $this->deserialize($ret_val[0]));
   }
 
   public function rpop($key) {
-    $status = $this->db->apply($this->format_key($key), "redis", "RPOP", array(self::BIN_NAME, 1), $ret_val);
+    return $this->rpopEx($key);
+  }
+
+  public function lpopEx($key, $ttl = 1) {
+    $status = $this->db->apply($this->format_key($key), "redis", "LPOP", array(self::BIN_NAME, 1, $ttl), $ret_val);
     $this->check_result($status);
     return $this->out(count($ret_val) == 0 ? false : $this->deserialize($ret_val[0]));
   }
 
   public function lpop($key) {
-    $status = $this->db->apply($this->format_key($key), "redis", "LPOP", array(self::BIN_NAME, 1), $ret_val);
-    $this->check_result($status);
-    return $this->out(count($ret_val) == 0 ? false : $this->deserialize($ret_val[0]));
+    return $this->lpopEx($key);
   }
 
   public function lsize($key) {

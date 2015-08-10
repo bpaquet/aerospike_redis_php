@@ -419,6 +419,15 @@ if (!isset($_ENV['USE_REDIS'])) {
   compare($r->get('myKey'), 'a');
   sleep(3);
   compare($r->get('myKey'), false);
+
+  echo("Array Ex\n");
+
+  $r->del('myKey');
+  compare($r->lSize('mykey'), 0);
+  compare($r->lpushEx('myKey', 'toto', 2), 1);
+  compare($r->lSize('myKey'), 1);
+  sleep(3);
+  compare($r->lSize('myKey'), 0);
 }
 
 echo("SetEx\n");
