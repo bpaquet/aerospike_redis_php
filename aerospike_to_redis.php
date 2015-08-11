@@ -200,7 +200,7 @@ class AerospikeRedis {
     return $this->rpopEx($key);
   }
 
-  public function lpopEx($key, $ttl = 1) {
+  public function lpopEx($key, $ttl = -1) {
     $status = $this->db->apply($this->format_key($key), "redis", "LPOP", array(self::BIN_NAME, 1, $ttl), $ret_val);
     $this->check_result($status);
     return $this->out(count($ret_val) == 0 ? false : $this->deserialize($ret_val[0]));
