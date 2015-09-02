@@ -342,7 +342,8 @@ compare($r->hIncrBy('myKey', 'a', 0), 0);
 if (!isset($_ENV['USE_REDIS'])) {
   echo("hIncrByEx\n");
   $r->del('myKey');
-  compare($r->hIncrByEx('myKey', 'a', 1, 500), 1);
+  compare($r->hIncrByEx('myKey', 'a', 2, 500), 2);
+  compare($r->hIncrByEx('myKey', 'a', 1, 500), 3);
   upper($r->ttl('myKey'), 100);
   lower($r->ttl('myKey'), 1000);
 

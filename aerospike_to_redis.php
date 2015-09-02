@@ -312,6 +312,12 @@ class AerospikeRedis {
     if ($status === Aerospike::ERR_BIN_INCOMPATIBLE_TYPE) {
       return $this->out(false);
     }
+    if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
+      $status = $this->db->put($this->format_key($key), array($field => $value), $ttl, $this->setnx_options);
+      if ($status === Aerospike::OK) {
+        return $this->out($value);
+      }
+    }
     throw new Exception("Aerospike error : ".$this->db->error());
   }
 
@@ -355,6 +361,19 @@ class AerospikeRedis {
     $status = $this->db->operate($this->format_key($key), $x, $ret_val, $this->operate_options);
     if ($status === Aerospike::OK) {
       return $this->out(true);
+    }
+    if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
+      $ttl = isset($operations['setTimeout']) ? $operations['setTimeout'] : null;
+      $fields = array();
+      if (isset($operations['hIncrBy'])) {
+        foreach(array_keys($operations['hIncrBy']) as $k) {
+          $fields[$k] = $operations['hIncrBy'][$k];
+        }
+      }
+      $status = $this->db->put($this->format_key($key), $fields, $ttl, $this->setnx_options);
+      if ($status === Aerospike::OK) {
+        return $this->out(true);
+      }
     }
     throw new Exception("Aerospike error : ".$this->db->error());
   }
@@ -559,6 +578,12 @@ class AerospikeRedisExpandedMap extends AerospikeRedis {
     }
     if ($status === Aerospike::ERR_BIN_INCOMPATIBLE_TYPE) {
       return false;
+    }
+    if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
+      $status = $this->db->put($this->format_key($k), array(self::MAIN_KEY_BIN_NAME => $suffixed_key, self::SECOND_KEY_BIN_NAME => $field, self::VALUE_BIN_NAME => $value), $this->composite_ttl(null), $this->setnx_options);
+      if ($status === Aerospike::OK) {
+        return $this->out($value);
+      }
     }
     throw new Exception("Aerospike error : ".$this->db->error());
   }
