@@ -590,6 +590,9 @@ class AerospikeRedisExpandedMap extends AerospikeRedis {
       if ($status === Aerospike::OK) {
         return $this->out($value);
       }
+      if ($status === Aerospike::ERR_RECORD_EXISTS) {
+        return $this->compositeIncr($suffixed_key, $field, $value);
+      }
     }
     throw new Exception("Aerospike error : ".$this->db->error());
   }
