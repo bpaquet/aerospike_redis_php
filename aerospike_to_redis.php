@@ -606,7 +606,7 @@ class AerospikeRedisExpandedMap extends AerospikeRedis {
 
   public function batch($key, $operations) {
     if (isset($operations['hIncrBy'])) {
-      $ttl = isset($operations['setTimeout']) ? $operations['setTimeout'] : $ttl;
+      $ttl = isset($operations['setTimeout']) ? $operations['setTimeout'] : $this->default_ttl;
       $suffixed_key = $this->composite_exists_or_create($key, $ttl, $created);
       foreach(array_keys($operations['hIncrBy']) as $k) {
         if ($this->compositeIncr($suffixed_key, $k, $operations['hIncrBy'][$k]) === false) {
