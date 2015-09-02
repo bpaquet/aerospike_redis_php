@@ -216,8 +216,8 @@ class AerospikeRedis {
       return $this->out(0);
     }
     if ($status === Aerospike::OK) {
-      $l = $ret_val["bins"][self::BIN_NAME . '_size'];
-      return $this->out($l === NULL ? 0 : $l);
+      $l = isset($ret_val["bins"][self::BIN_NAME . '_size']) ? $ret_val["bins"][self::BIN_NAME . '_size'] : 0;
+      return $this->out($l);
     }
     throw new Exception("Aerospike error : ".$this->db->error());
   }
