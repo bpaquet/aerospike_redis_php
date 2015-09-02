@@ -317,6 +317,9 @@ class AerospikeRedis {
       if ($status === Aerospike::OK) {
         return $this->out($value);
       }
+      if ($status === Aerospike::ERR_RECORD_EXISTS) {
+        return $this->_hIncrBy($key, $field, $value, $ttl);
+      }
     }
     throw new Exception("Aerospike error : ".$this->db->error());
   }
