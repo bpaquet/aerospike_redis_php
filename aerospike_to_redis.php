@@ -421,6 +421,10 @@ class AerospikeRedisExpandedMap extends AerospikeRedis {
     $this->default_ttl = $options['default_ttl'];
   }
 
+  public function now() {
+    return strval(intval(microtime(true)));
+  }
+
   private function format_composite_key($key, $field) {
     return "composite_" . $key . "_" . $field;
   }
@@ -450,7 +454,7 @@ class AerospikeRedisExpandedMap extends AerospikeRedis {
       return $suffixed_key;
     }
     $suffixed_key = $key. '_' . rand();
-    $status = $this->db->put($this->format_key($this->format_composite_key($key, self::MAIN_SUFFIX)), array(self::ROOT_BIN_NAME => $suffixed_key), $ttl, $this->setnx_options);
+    $status = $this->db->put($this->format_key($this->format_composite_key($key, self::MAIN_SUFFIX)), array(self::ROOT_BIN_NAME => $suffixed_key, 'created_at' => $this->now()), $ttl, $this->setnx_options);
     if ($status === Aerospike::OK) {
       $created = true;
       return $suffixed_key;
@@ -471,7 +475,7 @@ class AerospikeRedisExpandedMap extends AerospikeRedis {
     $suffixed_key = $this->composite_exists_or_create($key, null, $created);
     $k = $this->format_key($this->format_composite_key($suffixed_key, $field));
     $exists = $this->db->exists($k, $metadata, $this->read_options);
-    $status = $this->db->put($k, array(self::MAIN_KEY_BIN_NAME => $suffixed_key, self::SECOND_KEY_BIN_NAME => $field, self::VALUE_BIN_NAME => $this->serialize($value)), $this->composite_ttl(null), $this->write_options);
+    $status = $this->db->put($k, array(self::MAIN_KEY_BIN_NAME => $suffixed_key, self::SECOND_KEY_BIN_NAME => $field, self::VALUE_BIN_NAME => $this->serialize($value), 'created_at' => $this->now()), $this->composite_ttl(null), $this->write_options);
     $this->check_result($status);
 
     return $this->out($created || $exists === Aerospike::ERR_RECORD_NOT_FOUND ? 1 : 0);
@@ -524,7 +528,7 @@ class AerospikeRedisExpandedMap extends AerospikeRedis {
   public function hmSet($key, $values) {
     $suffixed_key = $this->composite_exists_or_create($key, null, $created);
     foreach(array_keys($values) as $k) {
-      $status = $this->db->put($this->format_key($this->format_composite_key($suffixed_key, $k)), array(self::MAIN_KEY_BIN_NAME => $suffixed_key, self::SECOND_KEY_BIN_NAME => $k, self::VALUE_BIN_NAME => $this->serialize($this->serialize($values[$k]))), $this->composite_ttl(null), $this->write_options);
+      $status = $this->db->put($this->format_key($this->format_composite_key($suffixed_key, $k)), array(self::MAIN_KEY_BIN_NAME => $suffixed_key, self::SECOND_KEY_BIN_NAME => $k, self::VALUE_BIN_NAME => $this->serialize($this->serialize($values[$k])), 'created_at' => $this->now()), $this->composite_ttl(null), $this->write_options);
       $this->check_result($status);
     }
     return $this->out(true);
@@ -588,7 +592,7 @@ class AerospikeRedisExpandedMap extends AerospikeRedis {
       return false;
     }
     if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
-      $status = $this->db->put($this->format_key($k), array(self::MAIN_KEY_BIN_NAME => $suffixed_key, self::SECOND_KEY_BIN_NAME => $field, self::VALUE_BIN_NAME => $value), $this->composite_ttl(null), $this->setnx_options);
+      $status = $this->db->put($this->format_key($k), array(self::MAIN_KEY_BIN_NAME => $suffixed_key, self::SECOND_KEY_BIN_NAME => $field, self::VALUE_BIN_NAME => $value, 'created_at' => $this->now()), $this->composite_ttl(null), $this->setnx_options);
       if ($status === Aerospike::OK) {
         return $this->out($value);
       }
