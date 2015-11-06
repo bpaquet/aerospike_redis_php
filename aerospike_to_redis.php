@@ -39,7 +39,7 @@ class AerospikeRedis {
     }
   }
 
-  protected function out($v) {
+  public function out($v) {
     if ($this->on_multi === false) {
       return $v;
     }
