@@ -118,36 +118,36 @@ $r->delete('myKey');
 compare($r->set('myKey', "a"), true);
 compare($r->incr('myKey'), false);
 
-// echo("Get Set binary\n");
+echo("Get Set binary\n");
 
-// $r->del('myKey');
+$r->del('myKey');
 
-// compare($r->get('myKey'), false);
-// compare($r->set('myKey', "toto\r\ntiti"), true);
-// compare($r->get('myKey'), "toto\r\ntiti");
+compare($r->get('myKey'), false);
+compare($r->set('myKey', "toto\r\ntiti"), true);
+compare($r->get('myKey'), "toto\r\ntiti");
 
-// compare($r->set('myKey', "toto\x00\x01\x02tata"), true);
-// compare($r->get('myKey'), "toto\x00\x01\x02tata");
+compare($r->set('myKey', "toto\x00\x01\x02tata"), true);
+compare($r->get('myKey'), "toto\x00\x01\x02tata");
 
-// echo("Get Set big data " . strlen($json)."\n");
+echo("Get Set big data " . strlen($json)."\n");
 
-// $r->del('myKey');
-// compare($r->get('myKey'), false);
-// compare($r->set('myKey', $json), true);
-// compare($r->get('myKey'), $json);
-// compare($r->del('myKey'), 1);
-// compare($r->rpush('myKey', $json), 1);
-// compare($r->rpop('myKey'), $json);
+$r->del('myKey');
+compare($r->get('myKey'), false);
+compare($r->set('myKey', $json), true);
+compare($r->get('myKey'), $json);
+compare($r->del('myKey'), 1);
+compare($r->rpush('myKey', $json), 1);
+compare($r->rpop('myKey'), $json);
 
-// echo("Get Set big data binary " . strlen($bin)."\n");
+echo("Get Set big data binary " . strlen($bin)."\n");
 
-// $r->del('myKey');
-// compare($r->get('myKey'), false);
-// compare($r->set('myKey', $bin), true);
-// compare(gzuncompress($r->get('myKey')), $json);
-// compare($r->del('myKey'), 1);
-// compare($r->rpush('myKey', $bin), 1);
-// compare(gzuncompress($r->rpop('myKey')), $json);
+$r->del('myKey');
+compare($r->get('myKey'), false);
+compare($r->set('myKey', $bin), true);
+compare(gzuncompress($r->get('myKey')), $json);
+compare($r->del('myKey'), 1);
+compare($r->rpush('myKey', $bin), 1);
+compare(gzuncompress($r->rpop('myKey')), $json);
 
 echo("Flush\n");
 compare($r->set('myKey1', "a"), true);
@@ -159,7 +159,7 @@ compare($r->get('myKey2'), false);
 echo("Array\n");
 
 $r->del('myKey');
-compare($r->lSize('mykey'), 0);
+compare($r->lSize('myKey'), 0);
 compare($r->rpop('myKey'), false);
 compare($r->lpop('myKey'), false);
 compare($r->lsize('myKey'), 0);
@@ -424,7 +424,7 @@ if (!isset($_ENV['USE_REDIS'])) {
   echo("Array Ex\n");
 
   $r->del('myKey');
-  compare($r->lSize('mykey'), 0);
+  compare($r->lSize('myKey'), 0);
   compare($r->lpushEx('myKey', 'toto', 2), 1);
   compare($r->lSize('myKey'), 1);
   sleep(3);
@@ -457,11 +457,11 @@ compare($r->get('myKey'), false);
 
 echo("Lot of keys\n");
 for($i = 0; $i < 500; $i ++) {
-  compare($r->set('mykey'.$i, $i), true);
+  compare($r->set('myKey'.$i, $i), true);
 }
 
 for($i = 0; $i < 500; $i ++) {
-  compare($r->get('mykey'.$i), ''.$i);
+  compare($r->get('myKey'.$i), ''.$i);
 }
 
 echo("OK\n");
