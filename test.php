@@ -185,6 +185,7 @@ compare($r->lsize('myKey'), 1);
 compare($r->rpop('myKey'), 'z');
 compare($r->lsize('myKey'), 0);
 compare($r->rpop('myKey'), false);
+compare($r->lpop('myKey'), false);
 
 compare($r->lpush('myKey', $bin), 1);
 compare($r->rpop('myKey'), $bin);
@@ -326,6 +327,13 @@ compare_map($r->hGetAll('myKey'), array('b' => '3', 'toto' => '2'));
 compare($r->hmSet('myKey', array("b" => $bin)), true);
 compare($r->hGet('myKey', "b"), $bin);
 
+if (isset($_ENV['EXPANDED_MAP'])) {
+  $r->del('myKey');
+  compare($r->hSet('myKey', "veryveryveryveryveryverylongke", "toto"), 1);
+  compare($r->hGet('myKey', "veryveryveryveryveryverylongke"), "toto");
+  compare_map($r->hGetAll('myKey'), array('veryveryveryveryveryverylongke' => 'toto'));
+}
+
 echo("hIncrBy\n");
 $r->del('myKey');
 compare($r->hIncrBy('myKey', 'a', 1), 1);
@@ -382,7 +390,7 @@ compare($r->rpop('myKey'), $r);
 compare($r->setTimeout('myKey', 12), $r);
 compare($r->hSet('myKey2', 'a', 12), $r);
 compare($r->hGet('myKey2', 'a'), $r);
-compare($r->exec(), array(false, true, 'toto2', 1, 1, "a", false, 1, "12"));
+compare($r->exec(), array(false, true, 'toto2', 1, 1, "a", true, 1, "12"));
 
 echo("Pipeline\n");
 
@@ -426,6 +434,13 @@ if (!isset($_ENV['USE_REDIS'])) {
   $r->del('myKey');
   compare($r->lSize('myKey'), 0);
   compare($r->lpushEx('myKey', 'toto', 2), 1);
+  compare($r->lSize('myKey'), 1);
+  sleep(3);
+  compare($r->lSize('myKey'), 0);
+
+  $r->del('myKey');
+  compare($r->lSize('myKey'), 0);
+  compare($r->rpushEx('myKey', 'toto', 2), 1);
   compare($r->lSize('myKey'), 1);
   sleep(3);
   compare($r->lSize('myKey'), 0);
