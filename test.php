@@ -386,11 +386,12 @@ compare($r->set('myKey', 'toto2'), $r);
 compare($r->get('myKey'), $r);
 compare($r->del('myKey'), $r);
 compare($r->rpush('myKey', 'a'), $r);
+compare($r->rpush('myKey', 'b'), $r);
 compare($r->rpop('myKey'), $r);
 compare($r->setTimeout('myKey', 12), $r);
 compare($r->hSet('myKey2', 'a', 12), $r);
 compare($r->hGet('myKey2', 'a'), $r);
-compare($r->exec(), array(false, true, 'toto2', 1, 1, "a", true, 1, "12"));
+compare($r->exec(), array(false, true, 'toto2', 1, 1, 2, "b", true, 1, "12"));
 
 echo("Pipeline\n");
 
