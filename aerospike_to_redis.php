@@ -298,10 +298,11 @@ class AerospikeRedis {
   }
 
   protected function _hIncrBy($key, $field, $value, $ttl = null) {
-    $operations = array(
-      array("op" => Aerospike::OPERATOR_INCR, "bin" => $field, "val" => $value),
-      array("op" => Aerospike::OPERATOR_READ, "bin" => $field),
-    );
+    $operations = array();
+    if ($value !== 0) {
+      array_push($operations, array("op" => Aerospike::OPERATOR_INCR, "bin" => $field, "val" => $value));
+    }
+    array_push($operations, array("op" => Aerospike::OPERATOR_READ, "bin" => $field));
     if ($ttl !== null) {
       array_push($operations, array("op" => Aerospike::OPERATOR_TOUCH, "ttl" => intval($ttl)));
     }

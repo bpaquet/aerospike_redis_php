@@ -341,6 +341,7 @@ compare($r->hGet('myKey', 'a'), "1");
 compare($r->hIncrBy('myKey', 'a', 10), 11);
 compare($r->hGet('myKey', 'a'), "11");
 compare($r->hIncrBy('myKey', 'a', -15), -4);
+compare($r->hGet('myKey', 'a'), "-4");
 compare($r->hIncrBy('myKey', 'a', 0), -4);
 compare($r->hIncrBy('myKey', 'b', 2), 2);
 compare_map($r->hGetAll('myKey'), array('a' => '-4', 'b' => '2'));
