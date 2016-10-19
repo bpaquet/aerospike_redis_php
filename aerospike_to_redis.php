@@ -8,6 +8,7 @@ class AerospikeRedis {
     $this->db = $db;
     $this->ns = $ns;
     $this->set = $set;
+    $this->url_suffix = "&set=".urlencode($set)."&namespace=".urlencode($ns);
     $this->on_multi = false;
     if (!isset($options['read_options'])) {
       $options['read_options'] = array(Aerospike::OPT_POLICY_CONSISTENCY => Aerospike::POLICY_CONSISTENCY_ONE, Aerospike::OPT_POLICY_REPLICA => Aerospike::POLICY_REPLICA_ANY);
@@ -56,6 +57,13 @@ class AerospikeRedis {
     return $v;
   }
 
+  protected function deserialize_go($v, $info) {
+    if (is_string($v) && substr($v, 0, 6) === "__64__") {
+      return base64_decode(substr($v, 6));
+    }
+    return $v;
+  }
+
   protected function deserialize($v) {
     if (is_string($v) && substr($v, 0, 6) === "__64__") {
       return base64_decode(substr($v, 6));
@@ -87,26 +95,39 @@ class AerospikeRedis {
     return $res;
   }
 
+  protected function curl($key, $cmd, $params = '') {
+    $ch = curl_init("http://localhost:8000/".$cmd."?key=".urlencode($key).$this->url_suffix.$params);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    return $ch;
+  }
+
+  protected function curl_code($ch) {
+    $info = curl_getinfo($ch);
+    curl_close($ch);
+    if ($info['http_code'] === 500) {
+      throw new Exception("Aerospike go error");
+    }
+    return $info['http_code'];
+  }
+
   public function get($key) {
-    $status = $this->db->get($this->format_key($key), $ret_val, array(self::BIN_NAME), $this->read_options);
-    if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
+    $ch = $this->curl($key, "get");
+    $res = curl_exec($ch);
+    $code = $this->curl_code($ch);
+    if ($code === 204) {
       return $this->out(false);
     }
-    if ($status === Aerospike::OK) {
-      return $this->out($this->deserialize($ret_val["bins"][self::BIN_NAME]));
-    }
-    throw new Exception("Aerospike error : ".$this->db->error());
+    return $this->out($this->deserialize_go($res, $info));
   }
 
   public function ttl($key) {
-    $status = $this->db->exists($this->format_key($key), $ret_val, $this->read_options);
-    if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
+    $ch = $this->curl($key, "exists");
+    $res = curl_exec($ch);
+    $code = $this->curl_code($ch);
+    if ($code === 404) {
       return $this->out(-2);
     }
-    if ($status === Aerospike::OK) {
-      return $this->out(intval($ret_val["ttl"]));
-    }
-    throw new Exception("Aerospike error : ".$this->db->error());
+    return $this->out(intval($res));
   }
 
   public function setTimeout($key, $ttl) {
@@ -124,8 +145,10 @@ class AerospikeRedis {
   }
 
   public function set($key, $value) {
-    $status = $this->db->put($this->format_key($key), array(self::BIN_NAME => $this->serialize($value)), 0, $this->write_options);
-    $this->check_result($status);
+    $ch = $this->curl($key, "put");
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $this->serialize($value));
+    $res = curl_exec($ch);
+    $this->curl_code($ch);
     return $this->out(true);
   }
 
@@ -134,14 +157,10 @@ class AerospikeRedis {
   }
 
   protected function _del($key) {
-    $status = $this->db->remove($this->format_key($key), $this->write_options);
-    if ($status === Aerospike::OK) {
-      return 1;
-    }
-    if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
-      return 0;
-    }
-    throw new Exception("Aerospike error : ".$this->db->error());
+    $ch = $this->curl($key, "delete");
+    curl_exec($ch);
+    $code = $this->curl_code($ch);
+    return $code === 204 ? 1 : 0;
   }
 
   public function delete($key) {
@@ -149,8 +168,10 @@ class AerospikeRedis {
   }
 
   public function setex($key, $ttl, $value) {
-    $status = $this->db->put($this->format_key($key), array(self::BIN_NAME => $this->serialize($value)), $ttl, $this->write_options);
-    $this->check_result($status);
+    $ch = $this->curl($key, "put", "&ttl=".$ttl);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $this->serialize($value));
+    $res = curl_exec($ch);
+    $this->curl_code($ch);
     return $this->out(true);
   }
 
@@ -253,9 +274,11 @@ class AerospikeRedis {
   }
 
   public function hDel($key, $field) {
-    $status = $this->db->apply($this->format_key($key), "redis", "HDEL", array($field), $ret_val);
-    $this->check_result($status);
-    return $this->out(is_array($ret_val) ? 0 : $ret_val);
+    $ch = $this->curl($key, "udf_1", "&package=redis&function=HDEL");
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $field);
+    $res = curl_exec($ch);
+    $this->curl_code($ch);
+    return $this->out(intval($res));
   }
 
   public function hmSet($key, $values) {
