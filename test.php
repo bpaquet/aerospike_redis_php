@@ -450,11 +450,12 @@ if (!isset($_ENV['USE_REDIS'])) {
 
 echo("SetEx\n");
 
+$r->del('not_existing key');
 compare($r->setTimeout('not_existing key', 10), false);
 compare($r->ttl('not_existing key'), -2);
 
 $r->del('myKey');
-compare($r->setex('myKey', 2, 'a'), true);
+compare($r->setex('myKey', 3, 'a'), true);
 compare($r->get('myKey'), "a");
 upper($r->ttl('myKey'), 1);
 sleep(1);

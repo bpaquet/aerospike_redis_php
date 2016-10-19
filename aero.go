@@ -11,8 +11,6 @@ import (
   as "github.com/aerospike/aerospike-client-go"
 )
 
-const bin_name = "r"
-
 func panicOnError(err error) {
   if err != nil {
     panic(err)
@@ -44,6 +42,7 @@ func main() {
   panicOnError(err)
 
   http.HandleFunc("/put", func(w http.ResponseWriter, r *http.Request) {
+    bin_name := r.URL.Query().Get("bin")
     body, err := ioutil.ReadAll(r.Body)
     if err != nil {
       http.Error(w, err.Error(), 500)
@@ -68,7 +67,7 @@ func main() {
         return
       }
       policy = as.NewWritePolicy(0, uint32(i))
-      fillWritePolicy(write_policy)
+      fillWritePolicy(policy)
     }
 
     err = client.Put(policy, key, rec)
@@ -79,12 +78,44 @@ func main() {
     w.WriteHeader(204)
   });
 
+  http.HandleFunc("/touch", func(w http.ResponseWriter, r *http.Request) {
+    key, err := buildKey(r)
+    if err != nil {
+      http.Error(w, err.Error(), 500)
+      return
+    }
+
+    ttl := r.URL.Query().Get("ttl")
+    i, err := strconv.Atoi(ttl)
+    if err != nil {
+      http.Error(w, err.Error(), 500)
+      return
+    }
+
+    policy := as.NewWritePolicy(0, uint32(i))
+    fillWritePolicy(policy)
+
+    err = client.Touch(policy, key)
+    if err != nil {
+      if err.Error() == "Key not found" {
+        w.WriteHeader(404)
+      } else {
+        http.Error(w, err.Error(), 500)
+        return
+      }
+    } else {
+      w.WriteHeader(204)
+    }
+  });
+
   http.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
     key, err := buildKey(r)
     if err != nil {
       http.Error(w, err.Error(), 500)
       return
     }
+
+    bin_name := r.URL.Query().Get("bin")
 
     rec, err := client.Get(read_policy, key, bin_name)
     if err != nil  {
@@ -93,7 +124,7 @@ func main() {
     }
 
     if rec == nil {
-      w.WriteHeader(204)
+      w.WriteHeader(404)
     } else {
       data := rec.Bins[bin_name]
       if reflect.TypeOf(data).Kind() == reflect.Int {
