@@ -147,6 +147,7 @@ compare($r->set('myKey', $bin), true);
 compare(gzuncompress($r->get('myKey')), $json);
 compare($r->del('myKey'), 1);
 compare($r->rpush('myKey', $bin), 1);
+compare(gzuncompress($r->lrange('myKey', 0, 200)[0]), $json);
 compare(gzuncompress($r->rpop('myKey')), $json);
 
 echo("Flush\n");
@@ -347,6 +348,11 @@ compare($r->hIncrBy('myKey', 'b', 2), 2);
 compare_map($r->hGetAll('myKey'), array('a' => '-4', 'b' => '2'));
 compare($r->del('myKey'), 1);
 compare($r->hIncrBy('myKey', 'a', 0), 0);
+
+$r->del('myKey');
+compare($r->hSet('myKey', 'a', 'b'), 1);
+compare($r->hIncrBy('myKey', 'a', 1), false);
+compare($r->hGet('myKey', 'a'), 'b');
 
 if (!isset($_ENV['USE_REDIS'])) {
   echo("hIncrByEx\n");

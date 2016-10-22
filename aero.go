@@ -7,6 +7,7 @@ import (
   "reflect"
   "fmt"
   "strconv"
+  "strings"
 
   as "github.com/aerospike/aerospike-client-go"
 )
@@ -29,6 +30,41 @@ func fillReadPolicy(read_policy * as.BasePolicy) {
 
 func fillWritePolicy(write_policy * as.WritePolicy) {
   write_policy.CommitLevel = as.COMMIT_MASTER
+}
+
+func export(w http.ResponseWriter, data interface{}, code_if_null int) {
+  if data == nil {
+    w.WriteHeader(code_if_null)
+  } else {
+    t := reflect.TypeOf(data).Kind()
+    if t == reflect.Int {
+      w.Header().Set("X-Aero-Type", "int")
+      io.WriteString(w, fmt.Sprintf("%d", data.(int)))
+    } else if t == reflect.Slice {
+      array := data.([]interface{})
+      io.WriteString(w, array[0].(string))
+    } else {
+      io.WriteString(w, data.(string))
+    }
+  }
+}
+
+func extractParam(name string, r *http.Request) (interface{}, error) {
+  p := r.URL.Query().Get(name)
+  if p == "__body__" {
+    body, err := ioutil.ReadAll(r.Body)
+    if err != nil {
+      return "", err
+    } else {
+      return string(body), err
+    }
+  } else {
+    if strings.HasPrefix(p, "__int__") {
+      return strconv.Atoi(p[7:len(p)])
+    } else {
+      return p, nil
+    }
+  }
 }
 
 func main() {
@@ -126,13 +162,7 @@ func main() {
     if rec == nil {
       w.WriteHeader(404)
     } else {
-      data := rec.Bins[bin_name]
-      if reflect.TypeOf(data).Kind() == reflect.Int {
-        w.Header().Set("X-Aero-Type", "int")
-        io.WriteString(w, fmt.Sprintf("%d", data.(int)))
-      } else {
-        io.WriteString(w, data.(string))
-      }
+      export(w, rec.Bins[bin_name], 404)
     }
   });
 
@@ -177,12 +207,6 @@ func main() {
   });
 
   http.HandleFunc("/udf_1", func(w http.ResponseWriter, r *http.Request) {
-    body, err := ioutil.ReadAll(r.Body)
-    if err != nil {
-      http.Error(w, err.Error(), 500)
-      return
-    }
-
     key, err := buildKey(r)
     if err != nil {
       http.Error(w, err.Error(), 500)
@@ -192,7 +216,11 @@ func main() {
     query := r.URL.Query()
     package_name := query.Get("package")
     function_name := query.Get("function")
-    param := string(body)
+    param, err := extractParam("p1", r)
+    if err != nil {
+      http.Error(w, err.Error(), 500)
+      return
+    }
 
     rec, err := client.Execute(write_policy, key, package_name, function_name, as.NewValue(param));
     if err != nil  {
@@ -200,16 +228,77 @@ func main() {
       return
     }
 
-    if rec == nil {
-      w.WriteHeader(204)
-    } else {
-      if reflect.TypeOf(rec).Kind() == reflect.Int {
-        w.Header().Set("X-Aero-Type", "int")
-        io.WriteString(w, fmt.Sprintf("%d", rec.(int)))
-      } else {
-        io.WriteString(w, rec.(string))
-      }
+    export(w, rec, 204)
+  });
+
+  http.HandleFunc("/udf_2", func(w http.ResponseWriter, r *http.Request) {
+    key, err := buildKey(r)
+    if err != nil {
+      http.Error(w, err.Error(), 500)
+      return
     }
+
+    query := r.URL.Query()
+    package_name := query.Get("package")
+    function_name := query.Get("function")
+
+    p1, err := extractParam("p1", r)
+    if err != nil {
+      http.Error(w, err.Error(), 500)
+      return
+    }
+
+    p2, err := extractParam("p2", r)
+    if err != nil {
+      http.Error(w, err.Error(), 500)
+      return
+    }
+
+    rec, err := client.Execute(write_policy, key, package_name, function_name, as.NewValue(p1), as.NewValue(p2));
+    if err != nil  {
+      http.Error(w, err.Error(), 500)
+      return
+    }
+
+    export(w, rec, 204)
+  });
+
+  http.HandleFunc("/udf_3", func(w http.ResponseWriter, r *http.Request) {
+    key, err := buildKey(r)
+    if err != nil {
+      http.Error(w, err.Error(), 500)
+      return
+    }
+
+    query := r.URL.Query()
+    package_name := query.Get("package")
+    function_name := query.Get("function")
+
+    p1, err := extractParam("p1", r)
+    if err != nil {
+      http.Error(w, err.Error(), 500)
+      return
+    }
+
+    p2, err := extractParam("p2", r)
+    if err != nil {
+      http.Error(w, err.Error(), 500)
+      return
+    }
+
+    p3, err := extractParam("p3", r)
+    if err != nil {
+      http.Error(w, err.Error(), 500)
+      return
+    }
+
+    rec, err := client.Execute(write_policy, key, package_name, function_name, as.NewValue(p1), as.NewValue(p2), as.NewValue(p3));
+    if err != nil  {
+      http.Error(w, err.Error(), 500)
+      return
+    }
+
+    export(w, rec, 204)
   });
 
   fmt.Printf("Ready.\n");

@@ -189,9 +189,11 @@ class AerospikeRedis {
   }
 
   public function rpushEx($key, $value, $ttl = -1) {
-    $status = $this->db->apply($this->format_key($key), "redis", "RPUSH", array(self::BIN_NAME, $this->serialize($value), $ttl), $ret_val);
-    $this->check_result($status);
-    return $this->out(is_array($ret_val) ? false : $ret_val);
+    $ch = $this->curl($key, "udf_3", "&package=redis&function=RPUSH&p1=".self::BIN_NAME."&p2=__body__&p3=".$ttl);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $this->serialize($value));
+    $res = curl_exec($ch);
+    $this->curl_code($ch);
+    return $this->out(intval($res));
   }
 
   public function rpush($key, $value) {
@@ -199,9 +201,11 @@ class AerospikeRedis {
   }
 
   public function lpushEx($key, $value, $ttl = -1) {
-    $status = $this->db->apply($this->format_key($key), "redis", "LPUSH", array(self::BIN_NAME, $this->serialize($value), $ttl), $ret_val);
-    $this->check_result($status);
-    return $this->out(is_array($ret_val) ? false : $ret_val);
+    $ch = $this->curl($key, "udf_3", "&package=redis&function=LPUSH&p1=".self::BIN_NAME."&p2=__body__&p3=".$ttl);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $this->serialize($value));
+    $res = curl_exec($ch);
+    $this->curl_code($ch);
+    return $this->out(intval($res));
   }
 
   public function lpush($key, $value) {
@@ -209,9 +213,10 @@ class AerospikeRedis {
   }
 
   public function rpopEx($key, $ttl = -1) {
-    $status = $this->db->apply($this->format_key($key), "redis", "RPOP", array(self::BIN_NAME, 1, $ttl), $ret_val);
-    $this->check_result($status);
-    return $this->out(count($ret_val) == 0 ? false : $this->deserialize($ret_val[0]));
+    $ch = $this->curl($key, "udf_3", "&package=redis&function=RPOP&p1=".self::BIN_NAME."&p2=__int__1&p3=".$ttl);
+    $res = curl_exec($ch);
+    $code = $this->curl_code($ch);
+    return $this->out($code === 204 ? false : $this->deserialize($res));
   }
 
   public function rpop($key) {
@@ -219,9 +224,10 @@ class AerospikeRedis {
   }
 
   public function lpopEx($key, $ttl = -1) {
-    $status = $this->db->apply($this->format_key($key), "redis", "LPOP", array(self::BIN_NAME, 1, $ttl), $ret_val);
-    $this->check_result($status);
-    return $this->out(count($ret_val) == 0 ? false : $this->deserialize($ret_val[0]));
+        $ch = $this->curl($key, "udf_3", "&package=redis&function=LPOP&p1=".self::BIN_NAME."&p2=__int__1&p3=".$ttl);
+    $res = curl_exec($ch);
+    $code = $this->curl_code($ch);
+    return $this->out($code === 204 ? false : $this->deserialize($res));
   }
 
   public function lpop($key) {
@@ -252,9 +258,11 @@ class AerospikeRedis {
   }
 
   public function hSet($key, $field, $value) {
-    $status = $this->db->apply($this->format_key($key), "redis", "HSET", array($field, $this->serialize($value)), $ret_val);
-    $this->check_result($status);
-    return $this->out(is_array($ret_val) ? 0 : $ret_val);
+    $ch = $this->curl($key, "udf_2", "&package=redis&function=HSET&p2=__body__&p1=".urlencode($field));
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $this->serialize($value));
+    $res = curl_exec($ch);
+    $this->curl_code($ch);
+    return $this->out(intval($res));
   }
 
   public function hGet($key, $field) {
@@ -268,7 +276,7 @@ class AerospikeRedis {
   }
 
   public function hDel($key, $field) {
-    $ch = $this->curl($key, "udf_1", "&package=redis&function=HDEL");
+    $ch = $this->curl($key, "udf_1", "&package=redis&function=HDEL&p1=__body__");
     curl_setopt($ch, CURLOPT_POSTFIELDS, $field);
     $res = curl_exec($ch);
     $this->curl_code($ch);
