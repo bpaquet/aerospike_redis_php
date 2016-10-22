@@ -332,7 +332,6 @@ class AerospikeRedis {
 
   public function hGetAll($key) {
     $ch = $this->curl($key, "udf_0", "&package=redis&function=HGETALL");
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $field);
     $res = curl_exec($ch);
     $this->curl_code($ch);
     return $this->out($this->read_map($res));
