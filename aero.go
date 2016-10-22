@@ -41,8 +41,16 @@ func export(w http.ResponseWriter, data interface{}, code_if_null int) {
       w.Header().Set("X-Aero-Type", "int")
       io.WriteString(w, fmt.Sprintf("%d", data.(int)))
     } else if t == reflect.Slice {
+      w.Header().Set("X-Aero-Type", "array")
       array := data.([]interface{})
-      io.WriteString(w, array[0].(string))
+      for _, element := range array {
+        if reflect.TypeOf(element).Kind() == reflect.Int {
+          element = fmt.Sprintf("%d", element)
+        }
+        element := element.(string)
+        size :=  fmt.Sprintf("%08x", len(element))
+        io.WriteString(w, size + element)
+      }
     } else {
       io.WriteString(w, data.(string))
     }
@@ -205,6 +213,27 @@ func main() {
       w.WriteHeader(404)
     }
   });
+
+  http.HandleFunc("/udf_0", func(w http.ResponseWriter, r *http.Request) {
+    key, err := buildKey(r)
+    if err != nil {
+      http.Error(w, err.Error(), 500)
+      return
+    }
+
+    query := r.URL.Query()
+    package_name := query.Get("package")
+    function_name := query.Get("function")
+
+    rec, err := client.Execute(write_policy, key, package_name, function_name);
+    if err != nil  {
+      http.Error(w, err.Error(), 500)
+      return
+    }
+
+    export(w, rec, 204)
+  });
+
 
   http.HandleFunc("/udf_1", func(w http.ResponseWriter, r *http.Request) {
     key, err := buildKey(r)

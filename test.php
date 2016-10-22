@@ -327,6 +327,7 @@ compare($r->hDel('myKey', 1), 1);
 compare_map($r->hGetAll('myKey'), array('b' => '3', 'toto' => '2'));
 compare($r->hmSet('myKey', array("b" => $bin)), true);
 compare($r->hGet('myKey', "b"), $bin);
+compare_map($r->hGetAll('myKey'), array('b' => $bin, 'toto' => '2'));
 
 if (isset($_ENV['EXPANDED_MAP'])) {
   $r->del('myKey');

@@ -57,13 +57,6 @@ class AerospikeRedis {
     return $v;
   }
 
-  protected function deserialize_go($v, $info) {
-    if (is_string($v) && substr($v, 0, 6) === "__64__") {
-      return base64_decode(substr($v, 6));
-    }
-    return $v;
-  }
-
   protected function deserialize($v) {
     if (is_string($v) && substr($v, 0, 6) === "__64__") {
       return base64_decode(substr($v, 6));
@@ -110,6 +103,29 @@ class AerospikeRedis {
     return $info['http_code'];
   }
 
+  protected function read_array($s) {
+    $a = array();
+    while (strlen($s) >= 8) {
+      $size  = hexdec(substr($s, 0, 8));
+      array_push($a, $this->deserialize(substr($s, 8, $size)));
+      $s = substr($s, 8 + $size);
+    }
+    return $a;
+  }
+
+  protected function read_map($s) {
+    $a = array();
+    while (strlen($s) >= 16) {
+      $size_key = hexdec(substr($s, 0, 8));
+      $key = substr($s, 8, $size_key);
+      $size_value = hexdec(substr($s, 8 + $size_key, 8));
+      $value = substr($s, 8 + $size_key + 8, $size_value);
+      $a[$key] = $this->deserialize($value);
+      $s = substr($s, 8 + $size_key + 8 + $size_value);
+    }
+    return $a;
+  }
+
   public function get($key) {
     $ch = $this->curl($key, "get", "&bin=".self::BIN_NAME);
     $res = curl_exec($ch);
@@ -117,7 +133,7 @@ class AerospikeRedis {
     if ($code === 404) {
       return $this->out(false);
     }
-    return $this->out($this->deserialize_go($res, $info));
+    return $this->out($this->deserialize($res));
   }
 
   public function ttl($key) {
@@ -216,7 +232,7 @@ class AerospikeRedis {
     $ch = $this->curl($key, "udf_3", "&package=redis&function=RPOP&p1=".self::BIN_NAME."&p2=__int__1&p3=".$ttl);
     $res = curl_exec($ch);
     $code = $this->curl_code($ch);
-    return $this->out($code === 204 ? false : $this->deserialize($res));
+    return $this->out($code === 204 ? false : $this->read_array($res)[0]);
   }
 
   public function rpop($key) {
@@ -224,10 +240,10 @@ class AerospikeRedis {
   }
 
   public function lpopEx($key, $ttl = -1) {
-        $ch = $this->curl($key, "udf_3", "&package=redis&function=LPOP&p1=".self::BIN_NAME."&p2=__int__1&p3=".$ttl);
+    $ch = $this->curl($key, "udf_3", "&package=redis&function=LPOP&p1=".self::BIN_NAME."&p2=__int__1&p3=".$ttl);
     $res = curl_exec($ch);
     $code = $this->curl_code($ch);
-    return $this->out($code === 204 ? false : $this->deserialize($res));
+    return $this->out($code === 204 ? false : $this->read_array($res)[0]);
   }
 
   public function lpop($key) {
@@ -245,16 +261,18 @@ class AerospikeRedis {
   }
 
   public function ltrim($key, $start, $end) {
-    $status = $this->db->apply($this->format_key($key), "redis", "LTRIM", array(self::BIN_NAME, $start, $end), $ret_val);
-    $this->check_result($status);
-    $this->assert_ok($ret_val);
+    $ch = $this->curl($key, "udf_3", "&package=redis&function=LTRIM&p1=".self::BIN_NAME."&p2=__int__".$start."&p3=__int__".$end);
+    $res = curl_exec($ch);
+    $this->curl_code($ch);
+    $this->assert_ok($res);
     return $this->out(true);
   }
 
   public function lRange($key, $start, $end) {
-    $status = $this->db->apply($this->format_key($key), "redis", "LRANGE", array(self::BIN_NAME, $start, $end), $ret_val);
-    $this->check_result($status);
-    return $this->out(array_map(array($this, 'deserialize'), $ret_val));
+    $ch = $this->curl($key, "udf_3", "&package=redis&function=LRANGE&p1=".self::BIN_NAME."&p2=__int__".$start."&p3=__int__".$end);
+    $res = curl_exec($ch);
+    $code = $this->curl_code($ch);
+    return $this->out($code === 204 ? false : $this->read_array($res));
   }
 
   public function hSet($key, $field, $value) {
@@ -272,7 +290,7 @@ class AerospikeRedis {
     if ($code === 404) {
       return $this->out(false);
     }
-    return $this->out($this->deserialize_go($res, $info));
+    return $this->out($this->deserialize($res, $info));
   }
 
   public function hDel($key, $field) {
@@ -313,13 +331,11 @@ class AerospikeRedis {
   }
 
   public function hGetAll($key) {
-    $status = $this->db->apply($this->format_key($key), "redis", "HGETALL", array(), $ret_val);
-    $this->check_result($status);
-    $r = array();
-    for($i = 0; $i < count($ret_val); $i += 2) {
-      $r[$ret_val[$i]] = $this->deserialize($ret_val[$i + 1]);
-    }
-    return $this->out($r);
+    $ch = $this->curl($key, "udf_0", "&package=redis&function=HGETALL");
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $field);
+    $res = curl_exec($ch);
+    $this->curl_code($ch);
+    return $this->out($this->read_map($res));
   }
 
   protected function _hIncrBy($key, $field, $value, $ttl = null) {
