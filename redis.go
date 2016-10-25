@@ -154,10 +154,13 @@ func main() {
   handlers["GET"] = handler{1, cmd_GET}
   handlers["SET"] = handler{2, cmd_SET}
   handlers["SETEX"] = handler{3, cmd_SETEX}
+  handlers["SETNXEX"] = handler{3, cmd_SETNXEX}
   handlers["SETNX"] = handler{2, cmd_SETNX}
   handlers["LLEN"] = handler{1, cmd_LLEN}
   handlers["RPUSH"] = handler{2, cmd_RPUSH}
   handlers["LPUSH"] = handler{2, cmd_LPUSH}
+  handlers["RPUSHEX"] = handler{3, cmd_RPUSHEX}
+  handlers["LPUSHEX"] = handler{3, cmd_LPUSHEX}
   handlers["RPOP"] = handler{1, cmd_RPOP}
   handlers["LPOP"] = handler{1, cmd_LPOP}
   handlers["LRANGE"] = handler{3, cmd_LRANGE}
@@ -165,6 +168,7 @@ func main() {
   handlers["INCR"] = handler{1, cmd_INCR}
   handlers["INCRBY"] = handler{2, cmd_INCRBY}
   handlers["HINCRBY"] = handler{3, cmd_HINCRBY}
+  handlers["HINCRBYEX"] = handler{4, cmd_HINCRBYEX}
   handlers["DECR"] = handler{1, cmd_DECR}
   handlers["DECRBY"] = handler{2, cmd_DECRBY}
   handlers["HGET"] = handler{2, cmd_HGET}
@@ -359,6 +363,15 @@ func cmd_SETNX(conn net.Conn, ctx context, args [][]byte) (error) {
   return setex(conn, ctx, args[0], BIN_NAME, args[1], -1, true)
 }
 
+func cmd_SETNXEX(conn net.Conn, ctx context, args [][]byte) (error) {
+  ttl, err := strconv.Atoi(string(args[1]))
+  if err != nil {
+    return err
+  }
+
+  return setex(conn, ctx, args[0], BIN_NAME, args[2], ttl, true)
+}
+
 func cmd_HSET(conn net.Conn, ctx context, args [][]byte) (error) {
   key, err := buildKey(ctx, args[0])
   if err != nil {
@@ -383,12 +396,12 @@ func cmd_HDEL(conn net.Conn, ctx context, args [][]byte) (error) {
   return WriteLine(conn, ":" + strconv.Itoa(rec.(int)))
 }
 
-func array_push(conn net.Conn, ctx context, args [][]byte, f string) (error) {
+func array_push(conn net.Conn, ctx context, args [][]byte, f string, ttl int) (error) {
   key, err := buildKey(ctx, args[0])
   if err != nil {
     return err
   }
-  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, f, as.NewValue(BIN_NAME), as.NewValue(args[1]), as.NewValue("-1"))
+  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, f, as.NewValue(BIN_NAME), as.NewValue(args[1]), as.NewValue(ttl))
   if err != nil  {
     return err;
   }
@@ -396,11 +409,29 @@ func array_push(conn net.Conn, ctx context, args [][]byte, f string) (error) {
 }
 
 func cmd_RPUSH(conn net.Conn, ctx context, args [][]byte) (error) {
-  return array_push(conn, ctx, args, "RPUSH")
+  return array_push(conn, ctx, args, "RPUSH", -1)
+}
+
+func cmd_RPUSHEX(conn net.Conn, ctx context, args [][]byte) (error) {
+  ttl, err := strconv.Atoi(string(args[2]))
+  if err != nil {
+    return err
+  }
+
+  return array_push(conn, ctx, args, "RPUSH", ttl)
 }
 
 func cmd_LPUSH(conn net.Conn, ctx context, args [][]byte) (error) {
-  return array_push(conn, ctx, args, "LPUSH")
+  return array_push(conn, ctx, args, "LPUSH", -1)
+}
+
+func cmd_LPUSHEX(conn net.Conn, ctx context, args [][]byte) (error) {
+  ttl, err := strconv.Atoi(string(args[2]))
+  if err != nil {
+    return err
+  }
+
+  return array_push(conn, ctx, args, "LPUSH", ttl)
 }
 
 func array_pop(conn net.Conn, ctx context, args [][]byte, f string) (error) {
@@ -493,7 +524,7 @@ func hIncrByEx(conn net.Conn, ctx context, k []byte, field string, incr int, ttl
     return err
   }
   bin := as.NewBin(field, incr)
-  rec, err := ctx.client.Operate(ctx.write_policy, key, as.AddOp(bin), as.GetOpForBin(field))
+  rec, err := ctx.client.Operate(fillWritePolicyEx(ctx, ttl, false), key, as.AddOp(bin), as.GetOpForBin(field))
   if err != nil  {
     if err.Error() == "Bin type error" {
       return WriteLine(conn, "$-1")
@@ -526,6 +557,18 @@ func cmd_HINCRBY(conn net.Conn, ctx context, args [][]byte) (error) {
     return err;
   }
   return hIncrByEx(conn, ctx, args[0], string(args[1]), incr, -1)
+}
+
+func cmd_HINCRBYEX(conn net.Conn, ctx context, args [][]byte) (error) {
+  incr, err := strconv.Atoi(string(args[2]))
+  if err != nil {
+    return err;
+  }
+  ttl, err := strconv.Atoi(string(args[3]))
+  if err != nil {
+    return err;
+  }
+  return hIncrByEx(conn, ctx, args[0], string(args[1]), incr, ttl)
 }
 
 func cmd_DECRBY(conn net.Conn, ctx context, args [][]byte) (error) {
