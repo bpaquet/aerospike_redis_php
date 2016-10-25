@@ -1,0 +1,119 @@
+diff --git a/php_redis.h b/php_redis.h
+index 4e00f8c..d561c40 100644
+--- a/php_redis.h
++++ b/php_redis.h
+@@ -37,6 +37,7 @@ PHP_METHOD(Redis, echo);
+ PHP_METHOD(Redis, get);
+ PHP_METHOD(Redis, set);
+ PHP_METHOD(Redis, setex);
++PHP_METHOD(Redis, setnxex);
+ PHP_METHOD(Redis, psetex);
+ PHP_METHOD(Redis, setnx);
+ PHP_METHOD(Redis, getSet);
+@@ -65,8 +66,10 @@ PHP_METHOD(Redis, sortAscAlpha);
+ PHP_METHOD(Redis, sortDesc);
+ PHP_METHOD(Redis, sortDescAlpha);
+ PHP_METHOD(Redis, lPush);
++PHP_METHOD(Redis, lPushEx);
+ PHP_METHOD(Redis, lPushx);
+ PHP_METHOD(Redis, rPush);
++PHP_METHOD(Redis, rPushEx);
+ PHP_METHOD(Redis, rPushx);
+ PHP_METHOD(Redis, lPop);
+ PHP_METHOD(Redis, rPop);
+@@ -171,6 +174,7 @@ PHP_METHOD(Redis, hVals);
+ PHP_METHOD(Redis, hGetAll);
+ PHP_METHOD(Redis, hExists);
+ PHP_METHOD(Redis, hIncrBy);
++PHP_METHOD(Redis, hIncrByEx);
+ PHP_METHOD(Redis, hIncrByFloat);
+ PHP_METHOD(Redis, hMset);
+ PHP_METHOD(Redis, hMget);
+diff --git a/redis.c b/redis.c
+index 6a45b1e..d5a0566 100644
+--- a/redis.c
++++ b/redis.c
+@@ -114,6 +114,7 @@ static zend_function_entry redis_functions[] = {
+      PHP_ME(Redis, get, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, set, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, setex, NULL, ZEND_ACC_PUBLIC)
++     PHP_ME(Redis, setnxex, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, psetex, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, setnx, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, getSet, NULL, ZEND_ACC_PUBLIC)
+@@ -142,7 +143,9 @@ static zend_function_entry redis_functions[] = {
+      PHP_ME(Redis, sortDesc, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, sortDescAlpha, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, lPush, NULL, ZEND_ACC_PUBLIC)
++     PHP_ME(Redis, lPushEx, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, rPush, NULL, ZEND_ACC_PUBLIC)
++     PHP_ME(Redis, rPushEx, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, lPushx, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, rPushx, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, lPop, NULL, ZEND_ACC_PUBLIC)
+@@ -232,6 +235,7 @@ static zend_function_entry redis_functions[] = {
+      PHP_ME(Redis, hGetAll, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, hExists, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, hIncrBy, NULL, ZEND_ACC_PUBLIC)
++     PHP_ME(Redis, hIncrByEx, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, hIncrByFloat, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, hMset, NULL, ZEND_ACC_PUBLIC)
+      PHP_ME(Redis, hMget, NULL, ZEND_ACC_PUBLIC)
+@@ -841,6 +845,14 @@ PHP_METHOD(Redis, psetex)
+         redis_string_response);
+ }
+ 
++/* {{{ proto boolean Redis::setnxex(string key, long expire, string value)
++ */
++PHP_METHOD(Redis, setnxex)
++{
++    REDIS_PROCESS_KW_CMD("SETNXEX", redis_key_long_val_cmd, redis_1_response);
++}
++/* }}} */
++
+ /* {{{ proto boolean Redis::setnx(string key, string value)
+  */
+ PHP_METHOD(Redis, setnx)
+@@ -1148,6 +1160,15 @@ PHP_METHOD(Redis, lPush)
+ }
+ /* }}} */
+ 
++/* {{{ proto boolean Redis::lPushEx(string key, string value, int ttl)
++ */
++PHP_METHOD(Redis, lPushEx)
++{
++    REDIS_PROCESS_KW_CMD("LPUSHEX", redis_key_varval_cmd, redis_long_response);
++}
++/* }}} */
++
++
+ /* {{{ proto boolean Redis::rPush(string key , string value)
+  */
+ PHP_METHOD(Redis, rPush)
+@@ -1156,6 +1177,14 @@ PHP_METHOD(Redis, rPush)
+ }
+ /* }}} */
+ 
++/* {{{ proto boolean Redis::rPushEx(string key , string value, int ttl)
++ */
++PHP_METHOD(Redis, rPushEx)
++{
++    REDIS_PROCESS_KW_CMD("RPUSHEX", redis_key_varval_cmd, redis_long_response);
++}
++/* }}} */
++
+ PHP_METHOD(Redis, lInsert)
+ {
+     REDIS_PROCESS_CMD(linsert, redis_long_response);
+@@ -2185,6 +2214,11 @@ PHP_METHOD(Redis, hIncrBy)
+ }
+ /* }}} */
+ 
++PHP_METHOD(Redis, hIncrByEx)
++{
++    REDIS_PROCESS_KW_CMD("HINCRBYEX", redis_key_varval_cmd, redis_long_response);
++}
++
+ /* {{{ array Redis::hMget(string hash, array keys) */
+ PHP_METHOD(Redis, hMget) {
+     REDIS_PROCESS_CMD(hmget, redis_mbulk_reply_assoc);
