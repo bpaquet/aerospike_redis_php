@@ -6,6 +6,8 @@ import (
   "flag"
   "strconv"
   "reflect"
+  base64 "encoding/base64"
+  "strings"
 
   as "github.com/aerospike/aerospike-client-go"
 )
@@ -95,8 +97,22 @@ func WriteLine(wf write_func, s string) error {
 }
 
 func WriteValue(wf write_func, x interface{}) error {
-  if reflect.TypeOf(x).Kind() == reflect.Int {
+  t := reflect.TypeOf(x).Kind()
+  if t == reflect.Int {
     return WriteByteArray(wf, []byte(strconv.Itoa(x.(int))))
+  // backward compat
+  } else if t == reflect.String {
+    s := x.(string)
+    if strings.HasPrefix(s, "__64__") {
+      bytes, err := base64.StdEncoding.DecodeString(s[6:])
+      if err != nil {
+        return err
+      }
+      return WriteByteArray(wf, bytes)
+    } else {
+      return WriteByteArray(wf, []byte(s))
+    }
+  // end of backward compat
   } else {
     return WriteByteArray(wf, x.([]byte))
   }
@@ -179,7 +195,7 @@ func main() {
   handlers["HGET"] = handler{2, cmd_HGET}
   handlers["HSET"] = handler{3, cmd_HSET}
   handlers["HDEL"] = handler{2, cmd_HDEL}
-  handlers["HMGET"] = handler{3, cmd_HMGET}
+  handlers["HMGET"] = handler{2, cmd_HMGET}
   handlers["HMSET"] = handler{3, cmd_HMSET}
   handlers["HGETALL"] = handler{1, cmd_HGETALL}
   handlers["EXPIRE"] = handler{2, cmd_EXPIRE}
@@ -504,7 +520,26 @@ func array_pop(wf write_func, ctx context, args [][]byte, f string) (error) {
   if rec == nil {
     return WriteLine(wf, "$-1")
   } else {
-    return WriteByteArray(wf, rec.([]interface{})[0].([]byte))
+    x := rec.([]interface{})[0]
+    // backward compat
+    t := reflect.TypeOf(x).Kind()
+    if t == reflect.Int {
+      return WriteByteArray(wf, []byte(strconv.Itoa(x.(int))))
+    } else if t == reflect.String {
+      s := x.(string)
+      if strings.HasPrefix(s, "__64__") {
+        bytes, err := base64.StdEncoding.DecodeString(s[6:])
+        if err != nil {
+          return err
+        }
+        return WriteByteArray(wf, bytes)
+      } else {
+        return WriteByteArray(wf, []byte(s))
+      }
+    // end of backward compat
+    } else {
+      return WriteByteArray(wf, x.([]byte))
+    }
   }
 }
 
