@@ -13,9 +13,11 @@ import (
 const BIN_NAME = "r"
 const module_name = "redis"
 
+type write_func func([]byte) (error)
+
 type handler struct {
   args_count int
-  f func(net.Conn, context, [][]byte) (error)
+  f func(write_func, context, [][]byte) (error)
 }
 
 type context struct {
@@ -57,26 +59,30 @@ func panicOnError(err error) {
   }
 }
 
-func WriteErr(conn net.Conn, s string) bool {
+func WriteErr(wf write_func, s string) error {
   fmt.Printf("Client error : %s\n", s)
-  conn.Write([]byte("-ERR " + s + "\n"))
-  return false
+  return wf([]byte("-ERR " + s + "\n"))
 }
 
-func WriteByteArray(conn net.Conn, buf []byte) error {
-  conn.Write([]byte("$" + strconv.Itoa(len(buf)) + "\r\n"))
-  conn.Write(buf)
-  conn.Write([]byte("\r\n"))
-  return nil
+func WriteByteArray(wf write_func, buf []byte) error {
+  err := wf([]byte("$" + strconv.Itoa(len(buf)) + "\r\n"))
+  if err != nil {
+    return err
+  }
+  err = wf(buf)
+  if err != nil {
+    return err
+  }
+  return wf([]byte("\r\n"))
 }
 
-func WriteArray(conn net.Conn, array []interface{}) error {
-  err := WriteLine(conn, "*" + strconv.Itoa(len(array)))
+func WriteArray(wf write_func, array []interface{}) error {
+  err := WriteLine(wf, "*" + strconv.Itoa(len(array)))
   if err != nil {
     return err
   }
   for _, e := range array {
-    err := WriteByteArray(conn, e.([]byte))
+    err := WriteByteArray(wf, e.([]byte))
     if err != nil {
       return err
     }
@@ -84,42 +90,41 @@ func WriteArray(conn net.Conn, array []interface{}) error {
   return nil
 }
 
-func WriteLine(conn net.Conn, s string) error {
-  conn.Write([]byte(s + "\r\n"))
-  return nil
+func WriteLine(wf write_func, s string) error {
+  return wf([]byte(s + "\r\n"))
 }
 
-func WriteValue(conn net.Conn, x interface{}) error {
+func WriteValue(wf write_func, x interface{}) error {
   if reflect.TypeOf(x).Kind() == reflect.Int {
-    return WriteByteArray(conn, []byte(strconv.Itoa(x.(int))))
+    return WriteByteArray(wf, []byte(strconv.Itoa(x.(int))))
   } else {
-    return WriteByteArray(conn, x.([]byte))
+    return WriteByteArray(wf, x.([]byte))
   }
 }
 
-func WriteBin(conn net.Conn, rec * as.Record, bin_name string, nil_value string) error {
+func WriteBin(wf write_func, rec * as.Record, bin_name string, nil_value string) error {
   if rec == nil {
-    return WriteLine(conn, nil_value)
+    return WriteLine(wf, nil_value)
   } else {
     x := rec.Bins[bin_name]
     if x == nil {
-      return WriteLine(conn, nil_value)
+      return WriteLine(wf, nil_value)
     } else {
-      return WriteValue(conn, x)
+      return WriteValue(wf, x)
     }
   }
 }
 
-func WriteBinInt(conn net.Conn, rec * as.Record, bin_name string) error {
+func WriteBinInt(wf write_func, rec * as.Record, bin_name string) error {
   nil_value := ":0"
   if rec == nil {
-    return WriteLine(conn, nil_value)
+    return WriteLine(wf, nil_value)
   } else {
     x := rec.Bins[bin_name]
     if x == nil {
-      return WriteLine(conn, nil_value)
+      return WriteLine(wf, nil_value)
     } else {
-      return WriteLine(conn, ":" + strconv.Itoa(x.(int)))
+      return WriteLine(wf, ":" + strconv.Itoa(x.(int)))
     }
   }
 }
@@ -201,6 +206,21 @@ func ReadLine(buf []byte, index int, l int) ([]byte, int) {
 }
 
 func HandleRequest(conn net.Conn, handlers map[string]handler, ctx context) {
+  var multi_buffer [][]byte
+  multi_counter := 0
+  multi_mode := false
+  wf := func(buffer []byte) (error) {
+    _, err := conn.Write(buffer)
+    return err
+  }
+  sub_wf := func(buffer []byte) (error) {
+    if multi_mode {
+      multi_buffer = append(multi_buffer, buffer)
+      return nil
+    } else {
+      return wf(buffer)
+    }
+  }
   buf := make([]byte, 1024)
   for {
     l, err := conn.Read(buf)
@@ -257,36 +277,73 @@ func HandleRequest(conn net.Conn, handlers map[string]handler, ctx context) {
       }
     }
     if count != 0 {
-      WriteErr(conn, "unable to parse")
+      WriteErr(wf, "unable to parse")
       conn.Close()
       break
     }
     cmd := string(args[0])
-    args = args[1:]
-    h, ok := handlers[cmd]
-    // fmt.Printf("Received %v\n", args)
-    if ok {
-      if h.args_count > len(args) {
-        WriteErr(conn, fmt.Sprintf("wrong number of params for '%s': %d", cmd, len(args)))
-        conn.Close()
-        break
-      } else {
-        err := h.f(conn, ctx, args)
+    if cmd == "MULTI" {
+      multi_counter = 0
+      multi_buffer = multi_buffer[:0]
+      WriteLine(wf, "+OK")
+      multi_mode = true
+    } else if cmd == "EXEC" {
+      if multi_mode {
+        multi_mode = false
+        err := WriteLine(wf, "*" + strconv.Itoa(multi_counter))
         if err != nil {
-          WriteErr(conn, fmt.Sprintf("Error '%s'", err))
-          conn.Close()
+          fmt.Printf("Client error : %s\n", err)
           break
         }
+        on_err := false
+        for _, b := range multi_buffer {
+          err := wf(b)
+          if err != nil {
+            on_err = true
+            fmt.Printf("Client error : %s\n", err)
+            break
+          }
+        }
+        if on_err {
+          break
+        }
+      } else {
+        WriteErr(wf, "Not in multi")
+        break
       }
     } else {
-      WriteErr(conn, fmt.Sprintf("unknown command '%s'", cmd))
-      conn.Close()
-      break
+      args = args[1:]
+      h, ok := handlers[cmd]
+      // fmt.Printf("Received %v\n", args)
+      if ok {
+        if h.args_count > len(args) {
+          WriteErr(wf, fmt.Sprintf("wrong number of params for '%s': %d", cmd, len(args)))
+          break
+        } else {
+          err := h.f(sub_wf, ctx, args)
+          if err != nil {
+            WriteErr(wf, fmt.Sprintf("Error '%s'", err))
+            break
+          }
+          if multi_mode {
+            multi_counter += 1
+            err := WriteLine(wf, "+QUEUED")
+            if err != nil {
+              fmt.Printf("Client error : %s\n", err)
+              break
+            }
+          }
+        }
+      } else {
+        WriteErr(wf, fmt.Sprintf("unknown command '%s'", cmd))
+        break
+      }
     }
   }
+  conn.Close()
 }
 
-func cmd_DEL(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_DEL(wf write_func, ctx context, args [][]byte) (error) {
   key, err := buildKey(ctx, args[0])
   if err != nil {
     return err
@@ -296,13 +353,13 @@ func cmd_DEL(conn net.Conn, ctx context, args [][]byte) (error) {
     return err
   }
   if existed {
-    return WriteLine(conn, ":1")
+    return WriteLine(wf, ":1")
   } else {
-    return WriteLine(conn, ":0")
+    return WriteLine(wf, ":0")
   }
 }
 
-func get(conn net.Conn, ctx context, k []byte, bin_name string) (error) {
+func get(wf write_func, ctx context, k []byte, bin_name string) (error) {
   key, err := buildKey(ctx, k)
   if err != nil {
     return err
@@ -311,18 +368,18 @@ func get(conn net.Conn, ctx context, k []byte, bin_name string) (error) {
   if err != nil  {
     return err
   }
-  return WriteBin(conn, rec, bin_name, "$-1")
+  return WriteBin(wf, rec, bin_name, "$-1")
 }
 
-func cmd_GET(conn net.Conn, ctx context, args [][]byte) (error) {
-  return get(conn, ctx, args[0], BIN_NAME)
+func cmd_GET(wf write_func, ctx context, args [][]byte) (error) {
+  return get(wf, ctx, args[0], BIN_NAME)
 }
 
-func cmd_HGET(conn net.Conn, ctx context, args [][]byte) (error) {
-  return get(conn, ctx, args[0], string(args[1]))
+func cmd_HGET(wf write_func, ctx context, args [][]byte) (error) {
+  return get(wf, ctx, args[0], string(args[1]))
 }
 
-func setex(conn net.Conn, ctx context, k []byte, bin_name string, content []byte, ttl int, create_only bool) (error) {
+func setex(wf write_func, ctx context, k []byte, bin_name string, content []byte, ttl int, create_only bool) (error) {
   key, err := buildKey(ctx, k)
   if err != nil {
     return err
@@ -333,46 +390,46 @@ func setex(conn net.Conn, ctx context, k []byte, bin_name string, content []byte
   err = ctx.client.Put(fillWritePolicyEx(ctx, ttl, create_only), key, rec)
   if err != nil  {
     if create_only && err.Error() == "Key already exists" {
-      return WriteLine(conn, ":0")
+      return WriteLine(wf, ":0")
     } else {
       return err
     }
   } else {
     if create_only {
-      return WriteLine(conn, ":1")
+      return WriteLine(wf, ":1")
     } else {
-      return WriteLine(conn, "+OK")
+      return WriteLine(wf, "+OK")
     }
   }
 }
 
-func cmd_SET(conn net.Conn, ctx context, args [][]byte) (error) {
-  return setex(conn, ctx, args[0], BIN_NAME, args[1], -1, false)
+func cmd_SET(wf write_func, ctx context, args [][]byte) (error) {
+  return setex(wf, ctx, args[0], BIN_NAME, args[1], -1, false)
 }
 
-func cmd_SETEX(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_SETEX(wf write_func, ctx context, args [][]byte) (error) {
   ttl, err := strconv.Atoi(string(args[1]))
   if err != nil {
     return err
   }
 
-  return setex(conn, ctx, args[0], BIN_NAME, args[2], ttl, false)
+  return setex(wf, ctx, args[0], BIN_NAME, args[2], ttl, false)
 }
 
-func cmd_SETNX(conn net.Conn, ctx context, args [][]byte) (error) {
-  return setex(conn, ctx, args[0], BIN_NAME, args[1], -1, true)
+func cmd_SETNX(wf write_func, ctx context, args [][]byte) (error) {
+  return setex(wf, ctx, args[0], BIN_NAME, args[1], -1, true)
 }
 
-func cmd_SETNXEX(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_SETNXEX(wf write_func, ctx context, args [][]byte) (error) {
   ttl, err := strconv.Atoi(string(args[1]))
   if err != nil {
     return err
   }
 
-  return setex(conn, ctx, args[0], BIN_NAME, args[2], ttl, true)
+  return setex(wf, ctx, args[0], BIN_NAME, args[2], ttl, true)
 }
 
-func cmd_HSET(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_HSET(wf write_func, ctx context, args [][]byte) (error) {
   key, err := buildKey(ctx, args[0])
   if err != nil {
     return err
@@ -381,10 +438,10 @@ func cmd_HSET(conn net.Conn, ctx context, args [][]byte) (error) {
   if err != nil  {
     return err;
   }
-  return WriteLine(conn, ":" + strconv.Itoa(rec.(int)))
+  return WriteLine(wf, ":" + strconv.Itoa(rec.(int)))
 }
 
-func cmd_HDEL(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_HDEL(wf write_func, ctx context, args [][]byte) (error) {
   key, err := buildKey(ctx, args[0])
   if err != nil {
     return err
@@ -393,10 +450,10 @@ func cmd_HDEL(conn net.Conn, ctx context, args [][]byte) (error) {
   if err != nil  {
     return err;
   }
-  return WriteLine(conn, ":" + strconv.Itoa(rec.(int)))
+  return WriteLine(wf, ":" + strconv.Itoa(rec.(int)))
 }
 
-func array_push(conn net.Conn, ctx context, args [][]byte, f string, ttl int) (error) {
+func array_push(wf write_func, ctx context, args [][]byte, f string, ttl int) (error) {
   key, err := buildKey(ctx, args[0])
   if err != nil {
     return err
@@ -405,36 +462,36 @@ func array_push(conn net.Conn, ctx context, args [][]byte, f string, ttl int) (e
   if err != nil  {
     return err;
   }
-  return WriteLine(conn, ":" + strconv.Itoa(rec.(int)))
+  return WriteLine(wf, ":" + strconv.Itoa(rec.(int)))
 }
 
-func cmd_RPUSH(conn net.Conn, ctx context, args [][]byte) (error) {
-  return array_push(conn, ctx, args, "RPUSH", -1)
+func cmd_RPUSH(wf write_func, ctx context, args [][]byte) (error) {
+  return array_push(wf, ctx, args, "RPUSH", -1)
 }
 
-func cmd_RPUSHEX(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_RPUSHEX(wf write_func, ctx context, args [][]byte) (error) {
   ttl, err := strconv.Atoi(string(args[2]))
   if err != nil {
     return err
   }
 
-  return array_push(conn, ctx, args, "RPUSH", ttl)
+  return array_push(wf, ctx, args, "RPUSH", ttl)
 }
 
-func cmd_LPUSH(conn net.Conn, ctx context, args [][]byte) (error) {
-  return array_push(conn, ctx, args, "LPUSH", -1)
+func cmd_LPUSH(wf write_func, ctx context, args [][]byte) (error) {
+  return array_push(wf, ctx, args, "LPUSH", -1)
 }
 
-func cmd_LPUSHEX(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_LPUSHEX(wf write_func, ctx context, args [][]byte) (error) {
   ttl, err := strconv.Atoi(string(args[2]))
   if err != nil {
     return err
   }
 
-  return array_push(conn, ctx, args, "LPUSH", ttl)
+  return array_push(wf, ctx, args, "LPUSH", ttl)
 }
 
-func array_pop(conn net.Conn, ctx context, args [][]byte, f string) (error) {
+func array_pop(wf write_func, ctx context, args [][]byte, f string) (error) {
   key, err := buildKey(ctx, args[0])
   if err != nil {
     return err
@@ -444,21 +501,21 @@ func array_pop(conn net.Conn, ctx context, args [][]byte, f string) (error) {
     return err;
   }
   if rec == nil {
-    return WriteLine(conn, "$-1")
+    return WriteLine(wf, "$-1")
   } else {
-    return WriteByteArray(conn, rec.([]interface{})[0].([]byte))
+    return WriteByteArray(wf, rec.([]interface{})[0].([]byte))
   }
 }
 
-func cmd_RPOP(conn net.Conn, ctx context, args [][]byte) (error) {
-  return array_pop(conn, ctx, args, "RPOP")
+func cmd_RPOP(wf write_func, ctx context, args [][]byte) (error) {
+  return array_pop(wf, ctx, args, "RPOP")
 }
 
-func cmd_LPOP(conn net.Conn, ctx context, args [][]byte) (error) {
-  return array_pop(conn, ctx, args, "LPOP")
+func cmd_LPOP(wf write_func, ctx context, args [][]byte) (error) {
+  return array_pop(wf, ctx, args, "LPOP")
 }
 
-func cmd_LLEN(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_LLEN(wf write_func, ctx context, args [][]byte) (error) {
   key, err := buildKey(ctx, args[0])
   if err != nil {
     return err
@@ -467,10 +524,10 @@ func cmd_LLEN(conn net.Conn, ctx context, args [][]byte) (error) {
   if err != nil  {
     return err
   }
-  return WriteBinInt(conn, rec, BIN_NAME + "_size")
+  return WriteBinInt(wf, rec, BIN_NAME + "_size")
 }
 
-func cmd_LRANGE(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_LRANGE(wf write_func, ctx context, args [][]byte) (error) {
   key, err := buildKey(ctx, args[0])
   if err != nil {
     return err
@@ -488,13 +545,13 @@ func cmd_LRANGE(conn net.Conn, ctx context, args [][]byte) (error) {
     return err;
   }
   if rec == nil {
-    return WriteLine(conn, "$-1")
+    return WriteLine(wf, "$-1")
   } else {
-    return WriteArray(conn, rec.([]interface{}))
+    return WriteArray(wf, rec.([]interface{}))
   }
 }
 
-func cmd_LTRIM(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_LTRIM(wf write_func, ctx context, args [][]byte) (error) {
   key, err := buildKey(ctx, args[0])
   if err != nil {
     return err
@@ -512,13 +569,13 @@ func cmd_LTRIM(conn net.Conn, ctx context, args [][]byte) (error) {
     return err;
   }
   if rec == nil {
-    return WriteLine(conn, "$-1")
+    return WriteLine(wf, "$-1")
   } else {
-    return WriteLine(conn, "+OK")
+    return WriteLine(wf, "+OK")
   }
 }
 
-func hIncrByEx(conn net.Conn, ctx context, k []byte, field string, incr int, ttl int) (error) {
+func hIncrByEx(wf write_func, ctx context, k []byte, field string, incr int, ttl int) (error) {
   key, err := buildKey(ctx, k)
   if err != nil {
     return err
@@ -527,39 +584,39 @@ func hIncrByEx(conn net.Conn, ctx context, k []byte, field string, incr int, ttl
   rec, err := ctx.client.Operate(fillWritePolicyEx(ctx, ttl, false), key, as.AddOp(bin), as.GetOpForBin(field))
   if err != nil  {
     if err.Error() == "Bin type error" {
-      return WriteLine(conn, "$-1")
+      return WriteLine(wf, "$-1")
     } else {
       return err
     }
   }
-  return WriteBinInt(conn, rec, field)
+  return WriteBinInt(wf, rec, field)
 }
 
-func cmd_INCR(conn net.Conn, ctx context, args [][]byte) (error) {
-  return hIncrByEx(conn, ctx, args[0], BIN_NAME, 1, -1)
+func cmd_INCR(wf write_func, ctx context, args [][]byte) (error) {
+  return hIncrByEx(wf, ctx, args[0], BIN_NAME, 1, -1)
 }
 
-func cmd_DECR(conn net.Conn, ctx context, args [][]byte) (error) {
-  return hIncrByEx(conn, ctx, args[0], BIN_NAME, -1, -1)
+func cmd_DECR(wf write_func, ctx context, args [][]byte) (error) {
+  return hIncrByEx(wf, ctx, args[0], BIN_NAME, -1, -1)
 }
 
-func cmd_INCRBY(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_INCRBY(wf write_func, ctx context, args [][]byte) (error) {
   incr, err := strconv.Atoi(string(args[1]))
   if err != nil {
     return err;
   }
-  return hIncrByEx(conn, ctx, args[0], BIN_NAME, incr, -1)
+  return hIncrByEx(wf, ctx, args[0], BIN_NAME, incr, -1)
 }
 
-func cmd_HINCRBY(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_HINCRBY(wf write_func, ctx context, args [][]byte) (error) {
   incr, err := strconv.Atoi(string(args[2]))
   if err != nil {
     return err;
   }
-  return hIncrByEx(conn, ctx, args[0], string(args[1]), incr, -1)
+  return hIncrByEx(wf, ctx, args[0], string(args[1]), incr, -1)
 }
 
-func cmd_HINCRBYEX(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_HINCRBYEX(wf write_func, ctx context, args [][]byte) (error) {
   incr, err := strconv.Atoi(string(args[2]))
   if err != nil {
     return err;
@@ -568,18 +625,18 @@ func cmd_HINCRBYEX(conn net.Conn, ctx context, args [][]byte) (error) {
   if err != nil {
     return err;
   }
-  return hIncrByEx(conn, ctx, args[0], string(args[1]), incr, ttl)
+  return hIncrByEx(wf, ctx, args[0], string(args[1]), incr, ttl)
 }
 
-func cmd_DECRBY(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_DECRBY(wf write_func, ctx context, args [][]byte) (error) {
   decr, err := strconv.Atoi(string(args[1]))
   if err != nil {
     return err;
   }
-  return hIncrByEx(conn, ctx, args[0], BIN_NAME, -decr, -1)
+  return hIncrByEx(wf, ctx, args[0], BIN_NAME, -decr, -1)
 }
 
-func cmd_HMGET(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_HMGET(wf write_func, ctx context, args [][]byte) (error) {
   key, err := buildKey(ctx, args[0])
   if err != nil {
     return err
@@ -592,12 +649,12 @@ func cmd_HMGET(conn net.Conn, ctx context, args [][]byte) (error) {
   if err != nil {
     return err;
   }
-  err = WriteLine(conn, "*" + strconv.Itoa(len(a)))
+  err = WriteLine(wf, "*" + strconv.Itoa(len(a)))
   if err != nil {
     return err;
   }
   for _, e := range a {
-    err = WriteBin(conn, rec, e, "$-1")
+    err = WriteBin(wf, rec, e, "$-1")
     if err != nil {
       return err;
     }
@@ -605,7 +662,7 @@ func cmd_HMGET(conn net.Conn, ctx context, args [][]byte) (error) {
   return nil
 }
 
-func cmd_HMSET(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_HMSET(wf write_func, ctx context, args [][]byte) (error) {
   key, err := buildKey(ctx, args[0])
   if err != nil {
     return err
@@ -618,11 +675,11 @@ func cmd_HMSET(conn net.Conn, ctx context, args [][]byte) (error) {
   if err != nil {
     return err;
   }
-  return WriteLine(conn, "+" + rec.(string))
+  return WriteLine(wf, "+" + rec.(string))
 }
 
 
-func cmd_HGETALL(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_HGETALL(wf write_func, ctx context, args [][]byte) (error) {
   key, err := buildKey(ctx, args[0])
   if err != nil {
     return err
@@ -632,16 +689,16 @@ func cmd_HGETALL(conn net.Conn, ctx context, args [][]byte) (error) {
     return err;
   }
   a := rec.([]interface{})
-  err = WriteLine(conn, "*" + strconv.Itoa(len(a)))
+  err = WriteLine(wf, "*" + strconv.Itoa(len(a)))
   if err != nil {
     return err;
   }
   for i := 0; i < len(a); i += 2 {
-    err = WriteByteArray(conn, []byte(a[i].(string)))
+    err = WriteByteArray(wf, []byte(a[i].(string)))
     if err != nil {
       return err;
     }
-    err = WriteValue(conn, a[i + 1])
+    err = WriteValue(wf, a[i + 1])
     if err != nil {
       return err;
     }
@@ -649,7 +706,7 @@ func cmd_HGETALL(conn net.Conn, ctx context, args [][]byte) (error) {
   return nil
 }
 
-func cmd_EXPIRE(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_EXPIRE(wf write_func, ctx context, args [][]byte) (error) {
     key, err := buildKey(ctx, args[0])
     if err != nil {
       return err
@@ -663,17 +720,17 @@ func cmd_EXPIRE(conn net.Conn, ctx context, args [][]byte) (error) {
     err = ctx.client.Touch(fillWritePolicyEx(ctx, ttl, false), key)
     if err != nil {
       if err.Error() == "Key not found" {
-        return WriteLine(conn, ":0")
+        return WriteLine(wf, ":0")
       } else {
         return err
       }
     } else {
-      return WriteLine(conn, ":1")
+      return WriteLine(wf, ":1")
     }
 
 }
 
-func cmd_TTL(conn net.Conn, ctx context, args [][]byte) (error) {
+func cmd_TTL(wf write_func, ctx context, args [][]byte) (error) {
   key, err := buildKey(ctx, args[0])
   if err != nil {
     return err
@@ -684,9 +741,9 @@ func cmd_TTL(conn net.Conn, ctx context, args [][]byte) (error) {
     return err
   } else {
     if rec == nil {
-      return WriteLine(conn, ":-2")
+      return WriteLine(wf, ":-2")
     } else {
-      return WriteLine(conn, ":" + strconv.FormatUint(uint64(rec.Expiration), 10))
+      return WriteLine(wf, ":" + strconv.FormatUint(uint64(rec.Expiration), 10))
     }
   }
 }
