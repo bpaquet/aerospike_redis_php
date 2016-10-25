@@ -35,8 +35,20 @@ func fillWritePolicy(write_policy * as.WritePolicy) {
   write_policy.CommitLevel = as.COMMIT_MASTER
 }
 
+func fillWritePolicyEx(ctx context, ttl int, create_only bool) * as.WritePolicy {
+  policy := as.NewWritePolicy(0, 0)
+  if ttl != -1 {
+    policy = as.NewWritePolicy(0, uint32(ttl))
+  }
+  fillWritePolicy(policy)
+  if create_only {
+    policy.RecordExistsAction = as.CREATE_ONLY
+  }
+  return policy
+}
+
 func buildKey(ctx context, key []byte) (*as.Key, error) {
-  return as.NewKey(ctx.ns, ctx.set, key)
+  return as.NewKey(ctx.ns, ctx.set, string(key))
 }
 
 func panicOnError(err error) {
@@ -77,6 +89,14 @@ func WriteLine(conn net.Conn, s string) error {
   return nil
 }
 
+func WriteValue(conn net.Conn, x interface{}) error {
+  if reflect.TypeOf(x).Kind() == reflect.Int {
+    return WriteByteArray(conn, []byte(strconv.Itoa(x.(int))))
+  } else {
+    return WriteByteArray(conn, x.([]byte))
+  }
+}
+
 func WriteBin(conn net.Conn, rec * as.Record, bin_name string, nil_value string) error {
   if rec == nil {
     return WriteLine(conn, nil_value)
@@ -85,11 +105,7 @@ func WriteBin(conn net.Conn, rec * as.Record, bin_name string, nil_value string)
     if x == nil {
       return WriteLine(conn, nil_value)
     } else {
-      if reflect.TypeOf(x).Kind() == reflect.Int {
-        return WriteByteArray(conn, []byte(strconv.Itoa(x.(int))))
-      } else {
-        return WriteByteArray(conn, x.([]byte))
-      }
+      return WriteValue(conn, x)
     }
   }
 }
@@ -137,6 +153,8 @@ func main() {
   handlers["DEL"] = handler{1, cmd_DEL}
   handlers["GET"] = handler{1, cmd_GET}
   handlers["SET"] = handler{2, cmd_SET}
+  handlers["SETEX"] = handler{3, cmd_SETEX}
+  handlers["SETNX"] = handler{2, cmd_SETNX}
   handlers["LLEN"] = handler{1, cmd_LLEN}
   handlers["RPUSH"] = handler{2, cmd_RPUSH}
   handlers["LPUSH"] = handler{2, cmd_LPUSH}
@@ -146,11 +164,17 @@ func main() {
   handlers["LTRIM"] = handler{3, cmd_LTRIM}
   handlers["INCR"] = handler{1, cmd_INCR}
   handlers["INCRBY"] = handler{2, cmd_INCRBY}
+  handlers["HINCRBY"] = handler{3, cmd_HINCRBY}
   handlers["DECR"] = handler{1, cmd_DECR}
   handlers["DECRBY"] = handler{2, cmd_DECRBY}
   handlers["HGET"] = handler{2, cmd_HGET}
   handlers["HSET"] = handler{3, cmd_HSET}
   handlers["HDEL"] = handler{2, cmd_HDEL}
+  handlers["HMGET"] = handler{3, cmd_HMGET}
+  handlers["HMSET"] = handler{3, cmd_HMSET}
+  handlers["HGETALL"] = handler{1, cmd_HGETALL}
+  handlers["EXPIRE"] = handler{2, cmd_EXPIRE}
+  handlers["TTL"] = handler{1, cmd_TTL}
 
   defer l.Close()
   for {
@@ -236,8 +260,9 @@ func HandleRequest(conn net.Conn, handlers map[string]handler, ctx context) {
     cmd := string(args[0])
     args = args[1:]
     h, ok := handlers[cmd]
+    // fmt.Printf("Received %v\n", args)
     if ok {
-      if h.args_count != len(args) {
+      if h.args_count > len(args) {
         WriteErr(conn, fmt.Sprintf("wrong number of params for '%s': %d", cmd, len(args)))
         conn.Close()
         break
@@ -293,7 +318,7 @@ func cmd_HGET(conn net.Conn, ctx context, args [][]byte) (error) {
   return get(conn, ctx, args[0], string(args[1]))
 }
 
-func setex(conn net.Conn, ctx context, k []byte, bin_name string, content []byte, ttl int) (error) {
+func setex(conn net.Conn, ctx context, k []byte, bin_name string, content []byte, ttl int, create_only bool) (error) {
   key, err := buildKey(ctx, k)
   if err != nil {
     return err
@@ -301,21 +326,37 @@ func setex(conn net.Conn, ctx context, k []byte, bin_name string, content []byte
   rec := as.BinMap {
     bin_name: content,
   }
-  policy := ctx.write_policy
-  if ttl != -1 {
-    policy = as.NewWritePolicy(0, uint32(ttl))
-    fillWritePolicy(policy)
-  }
-  err = ctx.client.Put(policy, key, rec)
+  err = ctx.client.Put(fillWritePolicyEx(ctx, ttl, create_only), key, rec)
   if err != nil  {
-    return err
+    if create_only && err.Error() == "Key already exists" {
+      return WriteLine(conn, ":0")
+    } else {
+      return err
+    }
   } else {
-    return WriteLine(conn, "+OK")
+    if create_only {
+      return WriteLine(conn, ":1")
+    } else {
+      return WriteLine(conn, "+OK")
+    }
   }
 }
 
 func cmd_SET(conn net.Conn, ctx context, args [][]byte) (error) {
-  return setex(conn, ctx, args[0], BIN_NAME, args[1], -1)
+  return setex(conn, ctx, args[0], BIN_NAME, args[1], -1, false)
+}
+
+func cmd_SETEX(conn net.Conn, ctx context, args [][]byte) (error) {
+  ttl, err := strconv.Atoi(string(args[1]))
+  if err != nil {
+    return err
+  }
+
+  return setex(conn, ctx, args[0], BIN_NAME, args[2], ttl, false)
+}
+
+func cmd_SETNX(conn net.Conn, ctx context, args [][]byte) (error) {
+  return setex(conn, ctx, args[0], BIN_NAME, args[1], -1, true)
 }
 
 func cmd_HSET(conn net.Conn, ctx context, args [][]byte) (error) {
@@ -323,7 +364,7 @@ func cmd_HSET(conn net.Conn, ctx context, args [][]byte) (error) {
   if err != nil {
     return err
   }
-  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, "HSET", as.NewValue(string(args[1])), as.NewValue(args[2]));
+  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, "HSET", as.NewValue(string(args[1])), as.NewValue(args[2]))
   if err != nil  {
     return err;
   }
@@ -335,7 +376,7 @@ func cmd_HDEL(conn net.Conn, ctx context, args [][]byte) (error) {
   if err != nil {
     return err
   }
-  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, "HDEL", as.NewValue(string(args[1])));
+  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, "HDEL", as.NewValue(string(args[1])))
   if err != nil  {
     return err;
   }
@@ -347,7 +388,7 @@ func array_push(conn net.Conn, ctx context, args [][]byte, f string) (error) {
   if err != nil {
     return err
   }
-  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, f, as.NewValue(BIN_NAME), as.NewValue(args[1]), as.NewValue("-1"));
+  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, f, as.NewValue(BIN_NAME), as.NewValue(args[1]), as.NewValue("-1"))
   if err != nil  {
     return err;
   }
@@ -367,7 +408,7 @@ func array_pop(conn net.Conn, ctx context, args [][]byte, f string) (error) {
   if err != nil {
     return err
   }
-  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, f, as.NewValue(BIN_NAME), as.NewValue(1), as.NewValue(-1));
+  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, f, as.NewValue(BIN_NAME), as.NewValue(1), as.NewValue(-1))
   if err != nil  {
     return err;
   }
@@ -411,7 +452,7 @@ func cmd_LRANGE(conn net.Conn, ctx context, args [][]byte) (error) {
   if err != nil {
     return err
   }
-  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, "LRANGE", as.NewValue(BIN_NAME), as.NewValue(start), as.NewValue(stop));
+  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, "LRANGE", as.NewValue(BIN_NAME), as.NewValue(start), as.NewValue(stop))
   if err != nil  {
     return err;
   }
@@ -435,7 +476,7 @@ func cmd_LTRIM(conn net.Conn, ctx context, args [][]byte) (error) {
   if err != nil {
     return err
   }
-  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, "LTRIM", as.NewValue(BIN_NAME), as.NewValue(start), as.NewValue(stop));
+  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, "LTRIM", as.NewValue(BIN_NAME), as.NewValue(start), as.NewValue(stop))
   if err != nil  {
     return err;
   }
@@ -452,7 +493,7 @@ func hIncrByEx(conn net.Conn, ctx context, k []byte, field string, incr int, ttl
     return err
   }
   bin := as.NewBin(field, incr)
-  rec, err := ctx.client.Operate(ctx.write_policy, key, as.AddOp(bin), as.GetOpForBin(field));
+  rec, err := ctx.client.Operate(ctx.write_policy, key, as.AddOp(bin), as.GetOpForBin(field))
   if err != nil  {
     if err.Error() == "Bin type error" {
       return WriteLine(conn, "$-1")
@@ -479,10 +520,130 @@ func cmd_INCRBY(conn net.Conn, ctx context, args [][]byte) (error) {
   return hIncrByEx(conn, ctx, args[0], BIN_NAME, incr, -1)
 }
 
+func cmd_HINCRBY(conn net.Conn, ctx context, args [][]byte) (error) {
+  incr, err := strconv.Atoi(string(args[2]))
+  if err != nil {
+    return err;
+  }
+  return hIncrByEx(conn, ctx, args[0], string(args[1]), incr, -1)
+}
+
 func cmd_DECRBY(conn net.Conn, ctx context, args [][]byte) (error) {
   decr, err := strconv.Atoi(string(args[1]))
   if err != nil {
     return err;
   }
   return hIncrByEx(conn, ctx, args[0], BIN_NAME, -decr, -1)
+}
+
+func cmd_HMGET(conn net.Conn, ctx context, args [][]byte) (error) {
+  key, err := buildKey(ctx, args[0])
+  if err != nil {
+    return err
+  }
+  a := make([]string, len(args) - 1)
+  for i, e := range args[1:] {
+    a[i] = string(e)
+  }
+  rec, err := ctx.client.Get(ctx.read_policy, key, a...)
+  if err != nil {
+    return err;
+  }
+  err = WriteLine(conn, "*" + strconv.Itoa(len(a)))
+  if err != nil {
+    return err;
+  }
+  for _, e := range a {
+    err = WriteBin(conn, rec, e, "$-1")
+    if err != nil {
+      return err;
+    }
+  }
+  return nil
+}
+
+func cmd_HMSET(conn net.Conn, ctx context, args [][]byte) (error) {
+  key, err := buildKey(ctx, args[0])
+  if err != nil {
+    return err
+  }
+  m := make(map[string][]byte)
+  for i := 1; i < len(args); i += 2 {
+    m[string(args[i])] = args[i + 1]
+  }
+  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, "HMSET", as.NewValue(m))
+  if err != nil {
+    return err;
+  }
+  return WriteLine(conn, "+" + rec.(string))
+}
+
+
+func cmd_HGETALL(conn net.Conn, ctx context, args [][]byte) (error) {
+  key, err := buildKey(ctx, args[0])
+  if err != nil {
+    return err
+  }
+  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, "HGETALL")
+  if err != nil {
+    return err;
+  }
+  a := rec.([]interface{})
+  err = WriteLine(conn, "*" + strconv.Itoa(len(a)))
+  if err != nil {
+    return err;
+  }
+  for i := 0; i < len(a); i += 2 {
+    err = WriteByteArray(conn, []byte(a[i].(string)))
+    if err != nil {
+      return err;
+    }
+    err = WriteValue(conn, a[i + 1])
+    if err != nil {
+      return err;
+    }
+  }
+  return nil
+}
+
+func cmd_EXPIRE(conn net.Conn, ctx context, args [][]byte) (error) {
+    key, err := buildKey(ctx, args[0])
+    if err != nil {
+      return err
+    }
+
+    ttl, err := strconv.Atoi(string(args[1]))
+    if err != nil {
+      return err
+    }
+
+    err = ctx.client.Touch(fillWritePolicyEx(ctx, ttl, false), key)
+    if err != nil {
+      if err.Error() == "Key not found" {
+        return WriteLine(conn, ":0")
+      } else {
+        return err
+      }
+    } else {
+      return WriteLine(conn, ":1")
+    }
+
+}
+
+func cmd_TTL(conn net.Conn, ctx context, args [][]byte) (error) {
+  key, err := buildKey(ctx, args[0])
+  if err != nil {
+    return err
+  }
+
+  rec, err := ctx.client.GetHeader(ctx.read_policy, key)
+  if err != nil {
+    return err
+  } else {
+    if rec == nil {
+      return WriteLine(conn, ":-2")
+    } else {
+      return WriteLine(conn, ":" + strconv.FormatUint(uint64(rec.Expiration), 10))
+    }
+  }
 }
