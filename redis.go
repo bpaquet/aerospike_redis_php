@@ -184,6 +184,7 @@ func main() {
   handlers["HGETALL"] = handler{1, cmd_HGETALL}
   handlers["EXPIRE"] = handler{2, cmd_EXPIRE}
   handlers["TTL"] = handler{1, cmd_TTL}
+  handlers["FLUSHDB"] = handler{0, cmd_FLUSHDB}
 
   defer l.Close()
   for {
@@ -746,4 +747,28 @@ func cmd_TTL(wf write_func, ctx context, args [][]byte) (error) {
       return WriteLine(wf, ":" + strconv.FormatUint(uint64(rec.Expiration), 10))
     }
   }
+}
+
+func cmd_FLUSHDB(wf write_func, ctx context, args [][]byte) (error) {
+  recordset, err := ctx.client.ScanAll(nil, ctx.ns, ctx.set)
+  if err != nil {
+    return err
+  }
+
+  err = nil
+  for res := range recordset.Results() {
+    if res.Err != nil {
+      err = res.Err
+      break
+    }
+    _, err = ctx.client.Delete(ctx.write_policy, res.Record.Key)
+    if err != nil {
+      break
+    }
+  }
+  if err != nil {
+    return err
+  }
+
+  return WriteLine(wf, "+OK")
 }
