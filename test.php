@@ -21,7 +21,7 @@ class ProxyCounter {
 
 }
 
-if (isset($_ENV['USE_REDIS'])) {
+if (isset($_ENV['USE_REDIS']) || isset($_ENV['USE_REAL_REDIS'])) {
   echo "Using Redis !!!!\n";
   $r = new Redis();
 }
@@ -358,7 +358,7 @@ compare($r->hSet('myKey', 'a', 'b'), 1);
 compare($r->hIncrBy('myKey', 'a', 1), false);
 compare($r->hGet('myKey', 'a'), 'b');
 
-// if (!isset($_ENV['USE_REDIS'])) {
+if (!isset($_ENV['USE_REAL_REDIS'])) {
   echo("hIncrByEx\n");
   $r->del('myKey');
   compare($r->hIncrByEx('myKey', 'a', 2, 500), 2);
@@ -383,7 +383,7 @@ compare($r->hGet('myKey', 'a'), 'b');
 //   compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '11', 'key3' => '12'));
 //   sleep(5);
 //   compare_map($r->hGetAll('myKey'), array());
-// // }
+}
 
 echo("Exec/Multi\n");
 
@@ -433,7 +433,7 @@ compare($r->setnx('myKey', 'a'), true);
 compare($r->setnx('myKey', 'b'), false);
 compare($r->get('myKey'), 'a');
 
-// if (!isset($_ENV['USE_REDIS'])) {
+if (!isset($_ENV['USE_REAL_REDIS'])) {
   echo("SetNxEx\n");
   $r->del('myKey');
   compare($r->setnxex('myKey', 3, 'a'), true);
@@ -457,7 +457,7 @@ compare($r->get('myKey'), 'a');
   compare($r->lSize('myKey'), 1);
   sleep(3);
   compare($r->lSize('myKey'), 0);
-// }
+}
 
 echo("SetEx\n");
 
