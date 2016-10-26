@@ -8,6 +8,7 @@ import (
   "reflect"
   base64 "encoding/base64"
   "strings"
+  "bytes"
 
   as "github.com/aerospike/aerospike-client-go"
 )
@@ -51,13 +52,15 @@ func fillWritePolicyEx(ctx context, ttl int, create_only bool) * as.WritePolicy 
   return policy
 }
 
-func buildKey(ctx context, key []byte) (*as.Key, error) {
+func BuildKey(ctx context, key []byte) (*as.Key, error) {
   return as.NewKey(ctx.ns, ctx.set, string(key))
 }
 
-func panicOnError(err error) {
-  if err != nil {
-    panic(err)
+func Encode(buf []byte) (interface{}) {
+  if bytes.IndexByte(buf, 0) == -1 {
+    return string(buf)
+  } else {
+    return "__64__" + base64.StdEncoding.EncodeToString(buf)
   }
 }
 
@@ -84,9 +87,31 @@ func WriteArray(wf write_func, array []interface{}) error {
     return err
   }
   for _, e := range array {
-    err := WriteByteArray(wf, e.([]byte))
-    if err != nil {
-      return err
+    // backward compat
+    t := reflect.TypeOf(e).Kind()
+    if t == reflect.String {
+      s := e.(string)
+      if strings.HasPrefix(s, "__64__") {
+        bytes, err := base64.StdEncoding.DecodeString(s[6:])
+        if err != nil {
+          return err
+        }
+        err = WriteByteArray(wf, bytes)
+        if err != nil {
+          return err
+        }
+      } else {
+        err := WriteByteArray(wf, []byte(s))
+        if err != nil {
+          return err
+        }
+      }
+    } else {
+      // end of backward compat
+      err := WriteByteArray(wf, e.([]byte))
+      if err != nil {
+        return err
+      }
     }
   }
   return nil
@@ -153,12 +178,16 @@ func main() {
   set := flag.String("set", "redis", "Aerospike set")
   flag.Parse()
   l, err := net.Listen("tcp", *listen)
-  panicOnError(err)
+  if err != nil {
+    panic(err)
+  }
 
   fmt.Printf("Listening on %s\n", *listen)
 
   client, err := as.NewClient(*aero_host, *aero_port)
-  panicOnError(err)
+  if err != nil {
+    panic(err)
+  }
 
   fmt.Printf("Connected to aero on %s:%d\n", *aero_host, *aero_port)
 
@@ -361,7 +390,7 @@ func HandleRequest(conn net.Conn, handlers map[string]handler, ctx context) {
 }
 
 func cmd_DEL(wf write_func, ctx context, args [][]byte) (error) {
-  key, err := buildKey(ctx, args[0])
+  key, err := BuildKey(ctx, args[0])
   if err != nil {
     return err
   }
@@ -377,7 +406,7 @@ func cmd_DEL(wf write_func, ctx context, args [][]byte) (error) {
 }
 
 func get(wf write_func, ctx context, k []byte, bin_name string) (error) {
-  key, err := buildKey(ctx, k)
+  key, err := BuildKey(ctx, k)
   if err != nil {
     return err
   }
@@ -397,12 +426,12 @@ func cmd_HGET(wf write_func, ctx context, args [][]byte) (error) {
 }
 
 func setex(wf write_func, ctx context, k []byte, bin_name string, content []byte, ttl int, create_only bool) (error) {
-  key, err := buildKey(ctx, k)
+  key, err := BuildKey(ctx, k)
   if err != nil {
     return err
   }
   rec := as.BinMap {
-    bin_name: content,
+    bin_name: Encode(content),
   }
   err = ctx.client.Put(fillWritePolicyEx(ctx, ttl, create_only), key, rec)
   if err != nil  {
@@ -447,11 +476,11 @@ func cmd_SETNXEX(wf write_func, ctx context, args [][]byte) (error) {
 }
 
 func cmd_HSET(wf write_func, ctx context, args [][]byte) (error) {
-  key, err := buildKey(ctx, args[0])
+  key, err := BuildKey(ctx, args[0])
   if err != nil {
     return err
   }
-  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, "HSET", as.NewValue(string(args[1])), as.NewValue(args[2]))
+  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, "HSET", as.NewValue(string(args[1])), as.NewValue(Encode(args[2])))
   if err != nil  {
     return err;
   }
@@ -459,7 +488,7 @@ func cmd_HSET(wf write_func, ctx context, args [][]byte) (error) {
 }
 
 func cmd_HDEL(wf write_func, ctx context, args [][]byte) (error) {
-  key, err := buildKey(ctx, args[0])
+  key, err := BuildKey(ctx, args[0])
   if err != nil {
     return err
   }
@@ -471,11 +500,11 @@ func cmd_HDEL(wf write_func, ctx context, args [][]byte) (error) {
 }
 
 func array_push(wf write_func, ctx context, args [][]byte, f string, ttl int) (error) {
-  key, err := buildKey(ctx, args[0])
+  key, err := BuildKey(ctx, args[0])
   if err != nil {
     return err
   }
-  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, f, as.NewValue(BIN_NAME), as.NewValue(args[1]), as.NewValue(ttl))
+  rec, err := ctx.client.Execute(ctx.write_policy, key, module_name, f, as.NewValue(BIN_NAME), as.NewValue(Encode(args[1])), as.NewValue(ttl))
   if err != nil  {
     return err;
   }
@@ -509,7 +538,7 @@ func cmd_LPUSHEX(wf write_func, ctx context, args [][]byte) (error) {
 }
 
 func array_pop(wf write_func, ctx context, args [][]byte, f string) (error) {
-  key, err := buildKey(ctx, args[0])
+  key, err := BuildKey(ctx, args[0])
   if err != nil {
     return err
   }
@@ -552,7 +581,7 @@ func cmd_LPOP(wf write_func, ctx context, args [][]byte) (error) {
 }
 
 func cmd_LLEN(wf write_func, ctx context, args [][]byte) (error) {
-  key, err := buildKey(ctx, args[0])
+  key, err := BuildKey(ctx, args[0])
   if err != nil {
     return err
   }
@@ -564,7 +593,7 @@ func cmd_LLEN(wf write_func, ctx context, args [][]byte) (error) {
 }
 
 func cmd_LRANGE(wf write_func, ctx context, args [][]byte) (error) {
-  key, err := buildKey(ctx, args[0])
+  key, err := BuildKey(ctx, args[0])
   if err != nil {
     return err
   }
@@ -588,7 +617,7 @@ func cmd_LRANGE(wf write_func, ctx context, args [][]byte) (error) {
 }
 
 func cmd_LTRIM(wf write_func, ctx context, args [][]byte) (error) {
-  key, err := buildKey(ctx, args[0])
+  key, err := BuildKey(ctx, args[0])
   if err != nil {
     return err
   }
@@ -612,7 +641,7 @@ func cmd_LTRIM(wf write_func, ctx context, args [][]byte) (error) {
 }
 
 func hIncrByEx(wf write_func, ctx context, k []byte, field string, incr int, ttl int) (error) {
-  key, err := buildKey(ctx, k)
+  key, err := BuildKey(ctx, k)
   if err != nil {
     return err
   }
@@ -673,7 +702,7 @@ func cmd_DECRBY(wf write_func, ctx context, args [][]byte) (error) {
 }
 
 func cmd_HMGET(wf write_func, ctx context, args [][]byte) (error) {
-  key, err := buildKey(ctx, args[0])
+  key, err := BuildKey(ctx, args[0])
   if err != nil {
     return err
   }
@@ -699,7 +728,7 @@ func cmd_HMGET(wf write_func, ctx context, args [][]byte) (error) {
 }
 
 func cmd_HMSET(wf write_func, ctx context, args [][]byte) (error) {
-  key, err := buildKey(ctx, args[0])
+  key, err := BuildKey(ctx, args[0])
   if err != nil {
     return err
   }
@@ -716,7 +745,7 @@ func cmd_HMSET(wf write_func, ctx context, args [][]byte) (error) {
 
 
 func cmd_HGETALL(wf write_func, ctx context, args [][]byte) (error) {
-  key, err := buildKey(ctx, args[0])
+  key, err := BuildKey(ctx, args[0])
   if err != nil {
     return err
   }
@@ -743,7 +772,7 @@ func cmd_HGETALL(wf write_func, ctx context, args [][]byte) (error) {
 }
 
 func cmd_EXPIRE(wf write_func, ctx context, args [][]byte) (error) {
-    key, err := buildKey(ctx, args[0])
+    key, err := BuildKey(ctx, args[0])
     if err != nil {
       return err
     }
@@ -767,7 +796,7 @@ func cmd_EXPIRE(wf write_func, ctx context, args [][]byte) (error) {
 }
 
 func cmd_TTL(wf write_func, ctx context, args [][]byte) (error) {
-  key, err := buildKey(ctx, args[0])
+  key, err := BuildKey(ctx, args[0])
   if err != nil {
     return err
   }

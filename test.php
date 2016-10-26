@@ -352,6 +352,7 @@ compare($r->hIncrBy('myKey', 'b', 2), 2);
 compare_map($r->hGetAll('myKey'), array('a' => '-4', 'b' => '2'));
 compare($r->del('myKey'), 1);
 compare($r->hIncrBy('myKey', 'a', 0), 0);
+compare($r->hIncrBy('myKey', 'b', 2), 2);
 
 $r->del('myKey');
 compare($r->hSet('myKey', 'a', 'b'), 1);
@@ -442,7 +443,7 @@ if (!isset($_ENV['USE_REAL_REDIS'])) {
   sleep(4);
   compare($r->get('myKey'), false);
 
-  echo("Array Ex\n");
+  echo("ArrayEx\n");
 
   $r->del('myKey');
   compare($r->lSize('myKey'), 0);
