@@ -12,6 +12,7 @@ import (
   "encoding/json"
   "sync"
   "io/ioutil"
+  "log"
 
   as "github.com/aerospike/aerospike-client-go"
 )
@@ -68,7 +69,7 @@ func Encode(buf []byte) (interface{}) {
 }
 
 func WriteErr(wf write_func, s string) error {
-  fmt.Printf("Client error : %s\n", s)
+  log.Print("Client error : %s\n", s)
   return wf([]byte("-ERR " + s + "\n"))
 }
 
@@ -283,6 +284,7 @@ func ReadLine(buf []byte, index int, l int) ([]byte, int) {
 }
 
 func HandleRequest(conn net.Conn, handlers map[string]handler, ctx context) {
+  error_prefix := "[" + ctx.set + "] "
   var multi_buffer [][]byte
   multi_counter := 0
   multi_mode := false
@@ -302,7 +304,7 @@ func HandleRequest(conn net.Conn, handlers map[string]handler, ctx context) {
   for {
     l, err := conn.Read(buf)
     if err != nil {
-      fmt.Println("Error reading:", err.Error())
+      log.Print(error_prefix + "Connection error: ", err.Error(), ", closing connection.")
       conn.Close()
       return;
     }
@@ -354,7 +356,7 @@ func HandleRequest(conn net.Conn, handlers map[string]handler, ctx context) {
       }
     }
     if count != 0 {
-      WriteErr(wf, "unable to parse")
+      WriteErr(wf, error_prefix + "Unable to parse receieved data, closing connection.")
       conn.Close()
       break
     }
@@ -369,7 +371,7 @@ func HandleRequest(conn net.Conn, handlers map[string]handler, ctx context) {
         multi_mode = false
         err := WriteLine(wf, "*" + strconv.Itoa(multi_counter))
         if err != nil {
-          fmt.Printf("Client error : %s\n", err)
+          fmt.Printf(error_prefix + "Client error during EXEC: '%s'\n", err)
           break
         }
         on_err := false
@@ -377,7 +379,7 @@ func HandleRequest(conn net.Conn, handlers map[string]handler, ctx context) {
           err := wf(b)
           if err != nil {
             on_err = true
-            fmt.Printf("Client error : %s\n", err)
+            fmt.Printf(error_prefix + "Client error during EXEC: '%s'\n", err)
             break
           }
         }
@@ -385,7 +387,7 @@ func HandleRequest(conn net.Conn, handlers map[string]handler, ctx context) {
           break
         }
       } else {
-        WriteErr(wf, "Not in multi")
+        WriteErr(wf, error_prefix + "EXEC received, but no MULTI before")
         break
       }
     } else {
@@ -394,25 +396,25 @@ func HandleRequest(conn net.Conn, handlers map[string]handler, ctx context) {
       // fmt.Printf("Received %v\n", args)
       if ok {
         if h.args_count > len(args) {
-          WriteErr(wf, fmt.Sprintf("wrong number of params for '%s': %d", cmd, len(args)))
+          WriteErr(wf, error_prefix + fmt.Sprintf("Wrong number of params for '%s': %d", cmd, len(args)))
           break
         } else {
           err := h.f(sub_wf, ctx, args)
           if err != nil {
-            WriteErr(wf, fmt.Sprintf("Error '%s'", err))
+            WriteErr(wf, error_prefix + fmt.Sprintf("Error: '%s'", err))
             break
           }
           if multi_mode {
             multi_counter += 1
             err := WriteLine(wf, "+QUEUED")
             if err != nil {
-              fmt.Printf("Client error : %s\n", err)
+              fmt.Printf(error_prefix + "Error: '%s'\n", err)
               break
             }
           }
         }
       } else {
-        WriteErr(wf, fmt.Sprintf("unknown command '%s'", cmd))
+        WriteErr(wf, error_prefix + fmt.Sprintf("unknown command '%s'", cmd))
         break
       }
     }
