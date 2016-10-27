@@ -9,6 +9,9 @@ import (
   base64 "encoding/base64"
   "strings"
   "bytes"
+  "encoding/json"
+  "sync"
+  "io/ioutil"
 
   as "github.com/aerospike/aerospike-client-go"
 )
@@ -171,24 +174,29 @@ func WriteBinInt(wf write_func, rec * as.Record, bin_name string) error {
 }
 
 func main() {
-  listen := flag.String("listen", "localhost:6379", "Listen string")
   aero_host := flag.String("aero_host", "localhost", "Aerospike server host")
   aero_port := flag.Int("aero_port", 3000, "Aerospike server port")
   ns := flag.String("ns", "test", "Aerospike namespace")
-  set := flag.String("set", "redis", "Aerospike set")
+  config_file := flag.String("config_file", "", "Configuration file")
   flag.Parse()
-  l, err := net.Listen("tcp", *listen)
-  if err != nil {
-    panic(err)
+
+  config := []byte("[{\"proto\":\"tcp\",\"listen\":\"127.0.0.1:6379\",\"set\":\"redis\"}]")
+  if *config_file != "" {
+    bytes, err := ioutil.ReadFile(*config_file)
+    if err != nil {
+      panic(err)
+    }
+    config = bytes
   }
 
-  fmt.Printf("Listening on %s\n", *listen)
+  var parsed_config interface{}
+  json.Unmarshal(config, &parsed_config)
 
+  fmt.Printf("Connecting to aero on %s:%d\n", *aero_host, *aero_port)
   client, err := as.NewClient(*aero_host, *aero_port)
   if err != nil {
     panic(err)
   }
-
   fmt.Printf("Connected to aero on %s:%d\n", *aero_host, *aero_port)
 
   read_policy := as.NewPolicy()
@@ -196,8 +204,6 @@ func main() {
 
   write_policy := as.NewWritePolicy(0, 0)
   fillWritePolicy(write_policy)
-
-  ctx := context{client, *ns, *set, read_policy, write_policy}
 
   handlers := make(map[string]handler)
   handlers["DEL"] = handler{1, cmd_DEL}
@@ -231,7 +237,32 @@ func main() {
   handlers["TTL"] = handler{1, cmd_TTL}
   handlers["FLUSHDB"] = handler{0, cmd_FLUSHDB}
 
-  defer l.Close()
+  var wg sync.WaitGroup
+
+  for _, c := range parsed_config.([]interface{}) {
+    wg.Add(1)
+
+    m := c.(map[string]interface{})
+    proto := m["proto"].(string)
+    listen := m["listen"].(string)
+    set := m["set"].(string)
+
+    l, err := net.Listen(proto, listen)
+    if err != nil {
+      panic(err)
+    }
+    defer l.Close()
+
+    ctx := context{client, *ns, set, read_policy, write_policy}
+
+    fmt.Printf("Listening on %s, using set %s\n", listen, set)
+    go HandlePort(ctx, l, handlers)
+  }
+
+  wg.Wait()
+}
+
+func HandlePort(ctx context, l net.Listener, handlers map[string]handler) {
   for {
     conn, err := l.Accept()
     if err != nil {
