@@ -463,7 +463,7 @@ class AerospikeRedisExpandedMap extends AerospikeRedis {
     if ($status === Aerospike::ERR_RECORD_EXISTS) {
       # wait replication
       sleep(0.1);
-      $suffixed_key = $this->composite_exists($keys);
+      $suffixed_key = $this->composite_exists($key);
       if ($suffixed_key === false) {
         throw new Exception("Unable to create key", $key);
       }
