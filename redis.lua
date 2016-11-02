@@ -76,7 +76,7 @@ local function ARRAY_RANGE (rec, bin, start, stop)
 		end
 
 		if (start == stop) then
-			if (start == 0) then
+			if (start == 0) and (#l == 0) then
 				return list()
 			end
 			local v = l[start + 1]
