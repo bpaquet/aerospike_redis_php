@@ -88,8 +88,6 @@ $r->delete('myKey');
 $r->delete('myKey2');
 
 compare($r->get('myKey'), false);
-compare($r->set('myKey', "a"), true);
-compare($r->get('myKey'), "a");
 compare($r->set('myKey', 12), true);
 compare($r->get('myKey'), "12");
 compare($r->set('myKey2', 13), true);
@@ -100,6 +98,24 @@ compare($r->del('myKey'), 0);
 compare($r->del('myKey2'), 1);
 compare($r->get('myKey'), false);
 compare($r->get('myKey2'), false);
+
+function generateRandomString($length = 10) {
+  $characters = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  $charactersLength = strlen($characters);
+  $randomString = '';
+  for ($i = 0; $i < $length; $i++) {
+      $randomString .= $characters[rand(0, $charactersLength - 1)];
+  }
+  return $randomString;
+}
+
+$s = "";
+for($i = 1; $i < 1032; $i ++) {
+  $s = generateRandomString($i);
+  // echo strlen($s)."\n";
+  compare($r->set('myKey', $s), true);
+  compare($r->get('myKey'), $s);
+}
 
 echo("Flush\n");
 compare($r->set('myKey1', "a"), true);
@@ -156,6 +172,12 @@ compare($r->get('myKey'), "-3");
 $r->delete('myKey');
 compare($r->set('myKey', "a"), true);
 compare($r->incr('myKey'), false);
+
+$r->delete('myKey');
+compare($r->set('myKey', 'a'), true);
+compare($r->set('myKey', 2), true);
+compare($r->incr('myKey'), 3);
+compare($r->get('myKey'), "3");
 
 echo("Array\n");
 
@@ -274,6 +296,15 @@ compare($r->lRange('myKey', -2, -3), array());
 compare($r->ltrim('myKey', -2, -3), true);
 compare($r->lsize('myKey'), 0);
 compare($r->lRange('myKey', 0, 200), array());
+compare($r->rpop('myKey'), false);
+
+$r->del('myKey');
+compare($r->lRange('myKey', 0, 0), array());
+compare($r->rpush('myKey', 'a'), 1);
+compare($r->ltrim('myKey', 2, 4), true);
+compare($r->lsize('myKey'), 0);
+compare($r->lRange('myKey', 0, 0), array());
+
 
 echo("hSet hGet hDel\n");
 $r->del('myKey');
@@ -404,6 +435,19 @@ compare($r->setTimeout('myKey', 12), $r);
 compare($r->hSet('myKey2', 'a', 12), $r);
 compare($r->hGet('myKey2', 'a'), $r);
 compare($r->exec(), array(false, true, 'toto2', 1, 1, 2, "b", true, 1, "12"));
+
+echo("Discard\n");
+
+$r->del('myKey');
+compare($r->set('myKey', 1), true);
+compare($r->incr('myKey'), 2);
+compare($r->get('myKey'), '2');
+compare($r->multi(), $r);
+compare($r->incr('myKey'), $r);
+compare($r->discard(), true);
+compare($r->discard(), false);
+compare($r->exec(), NULL);
+compare($r->get('myKey'), isset($_ENV['USE_REAL_REDIS']) ? '3' : '2');
 
 echo("Pipeline\n");
 
