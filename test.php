@@ -398,23 +398,23 @@ if (!isset($_ENV['USE_REAL_REDIS'])) {
   upper($r->ttl('myKey'), 100);
   lower($r->ttl('myKey'), 1000);
 
-//   echo("Batch\n");
+  echo("Batch\n");
 
-//   $r->del('myKey');
-//   $r->del('myKey2');
-//   compare($r->batch('myKey2', array('setTimeout' => 200)), true);
-//   compare($r->ttl('myKey2'), -2);
+  $r->del('myKey');
+  $r->del('myKey2');
+  compare($r->batch('myKey2', array('setTimeout' => 200)), true);
+  compare($r->ttl('myKey2'), -2);
 
-//   compare($r->batch('myKey', array('hIncrBy' => array('key' => 1, 'key2' => 5), 'setTimeout' => 10)), true);
-//   compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '5'));
-//   compare($r->batch('myKey', array('hIncrBy' => array('key2' => 6), 'setTimeout' => 200)), true);
-//   upper($r->ttl('myKey'), 100);
-//   lower($r->ttl('myKey'), 1000);
-//   compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '11'));
-//   compare($r->batch('myKey', array('hIncrBy' => array('key3' => 12), 'setTimeout' => 2)), true);
-//   compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '11', 'key3' => '12'));
-//   sleep(5);
-//   compare_map($r->hGetAll('myKey'), array());
+  compare($r->batch('myKey', array('hIncrBy' => array('key' => 1, 'key2' => 5), 'setTimeout' => 10)), true);
+  compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '5'));
+  compare($r->batch('myKey', array('hIncrBy' => array('key2' => 6), 'setTimeout' => 200)), true);
+  upper($r->ttl('myKey'), 100);
+  lower($r->ttl('myKey'), 1000);
+  compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '11'));
+  compare($r->batch('myKey', array('hIncrBy' => array('key3' => 12), 'setTimeout' => 2)), true);
+  compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '11', 'key3' => '12'));
+  sleep(5);
+  compare_map($r->hGetAll('myKey'), array());
 }
 
 echo("Exec/Multi\n");
