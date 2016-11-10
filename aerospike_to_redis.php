@@ -348,18 +348,16 @@ class AerospikeRedis {
     throw new Exception("Aerospike error : ".$this->db->error());
   }
 
-  public function batch($key, $operations) {
+  public function hmincrbyex($key, $hincrby, $timeout) {
     $x = array();
-    if (isset($operations['hIncrBy'])) {
-      foreach(array_keys($operations['hIncrBy']) as $k) {
-        array_push($x, array("op" => Aerospike::OPERATOR_INCR, "bin" => $k, "val" => $operations['hIncrBy'][$k]));
-      }
+    foreach(array_keys($hincrby) as $k) {
+      array_push($x, array("op" => Aerospike::OPERATOR_INCR, "bin" => $k, "val" => $hincrby[$k]));
     }
-    if (isset($operations['setTimeout'])) {
-      array_push($x, array("op" => Aerospike::OPERATOR_TOUCH, "ttl" => intval($operations['setTimeout'])));
+    if ($timeout !== -1) {
+      array_push($x, array("op" => Aerospike::OPERATOR_TOUCH, "ttl" => intval($timeout)));
     }
-    if (count($x) === 1 && isset($operations['setTimeout'])) {
-      $this->setTimeout($key, $operations['setTimeout']);
+    if (count($x) === 1 && $timeout !== -1) {
+      $this->setTimeout($key, $timeout);
       return $this->out(true);
     }
     $status = $this->db->operate($this->format_key($key), $x, $ret_val, $this->operate_options);
@@ -367,19 +365,17 @@ class AerospikeRedis {
       return $this->out(true);
     }
     if ($status === Aerospike::ERR_RECORD_NOT_FOUND) {
-      $ttl = isset($operations['setTimeout']) ? $operations['setTimeout'] : null;
+      $ttl = $timeout !== -1 ? $timeout : null;
       $fields = array();
-      if (isset($operations['hIncrBy'])) {
-        foreach(array_keys($operations['hIncrBy']) as $k) {
-          $fields[$k] = $operations['hIncrBy'][$k];
-        }
+      foreach(array_keys($hincrby) as $k) {
+        $fields[$k] = $hincrby[$k];
       }
       $status = $this->db->put($this->format_key($key), $fields, $ttl, $this->setnx_options);
       if ($status === Aerospike::OK) {
         return $this->out(true);
       }
       if ($status === Aerospike::ERR_RECORD_EXISTS) {
-        return $this->batch($key, $operations);
+        return $this->batch($key, $hincrby, $timeout);
       }
     }
     throw new Exception("Aerospike error : ".$this->db->error());
@@ -463,7 +459,7 @@ class AerospikeRedisExpandedMap extends AerospikeRedis {
     if ($status === Aerospike::ERR_RECORD_EXISTS) {
       # wait replication
       sleep(0.1);
-      $suffixed_key = $this->composite_exists($keys);
+      $suffixed_key = $this->composite_exists($key);
       if ($suffixed_key === false) {
         throw new Exception("Unable to create key", $key);
       }
@@ -609,19 +605,15 @@ class AerospikeRedisExpandedMap extends AerospikeRedis {
     return $this->compositeIncr($suffixed_key, $field, $value);
   }
 
-  public function batch($key, $operations) {
-    if (isset($operations['hIncrBy'])) {
-      $ttl = isset($operations['setTimeout']) ? $operations['setTimeout'] : $this->default_ttl;
-      $suffixed_key = $this->composite_exists_or_create($key, $ttl, $created);
-      foreach(array_keys($operations['hIncrBy']) as $k) {
-        if ($this->compositeIncr($suffixed_key, $k, $operations['hIncrBy'][$k]) === false) {
+  public function hmincrbyex($key, $hincrby, $timeout) {
+    $suffixed_key = $this->composite_exists_or_create($key, $timeout, $created);
+    if (count($hincrby) > 0) {
+      foreach(array_keys($hincrby) as $k) {
+        if ($this->compositeIncr($suffixed_key, $k, $hincrby[$k]) === false) {
           throw new Exception("Aerospike error : ".$this->db->error());
         }
       }
       return $this->out(true);
-    }
-    if (isset($operations['setTimeout'])) {
-      parent::_setTimeout($this->format_composite_key($key, self::MAIN_SUFFIX), $operations['setTimeout']);
     }
     return $this->out(true);
   }

@@ -401,17 +401,24 @@ if (!isset($_ENV['USE_REAL_REDIS'])) {
   echo("Batch\n");
 
   $r->del('myKey');
-  $r->del('myKey2');
-  compare($r->batch('myKey2', array('setTimeout' => 200)), true);
-  compare($r->ttl('myKey2'), -2);
+  if (isset($_ENV['EXPANDED_MAP'])) {
+    $r->del('myKey2');
+    $r->del('myKey3');
+    compare($r->hmincrbyex('myKey2', array(), 200), true);
+    upper($r->ttl('myKey2'), 150);
+    lower($r->ttl('myKey2'), 250);
 
-  compare($r->batch('myKey', array('hIncrBy' => array('key' => 1, 'key2' => 5), 'setTimeout' => 10)), true);
+    compare($r->hmincrbyex('myKey3', array(), -1), true);
+    upper($r->ttl('myKey3'), 2000);
+  }
+
+  compare($r->hmincrbyex('myKey', array('key' => 1, 'key2' => 5), 10), true);
   compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '5'));
-  compare($r->batch('myKey', array('hIncrBy' => array('key2' => 6), 'setTimeout' => 200)), true);
+  compare($r->hmincrbyex('myKey', array('key2' => 6), 200), true);
   upper($r->ttl('myKey'), 100);
   lower($r->ttl('myKey'), 1000);
   compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '11'));
-  compare($r->batch('myKey', array('hIncrBy' => array('key3' => 12), 'setTimeout' => 2)), true);
+  compare($r->hmincrbyex('myKey', array('key3' => 12), 2), true);
   compare_map($r->hGetAll('myKey'), array('key' => '1', 'key2' => '11', 'key3' => '12'));
   sleep(5);
   compare_map($r->hGetAll('myKey'), array());
@@ -447,7 +454,7 @@ compare($r->incr('myKey'), $r);
 compare($r->discard(), true);
 compare($r->discard(), false);
 compare($r->exec(), NULL);
-compare($r->get('myKey'), isset($_ENV['USE_REAL_REDIS']) ? '3' : '2');
+compare($r->get('myKey'), isset($_ENV['USE_REAL_REDIS']) ? '2' : '3');
 
 echo("Pipeline\n");
 
